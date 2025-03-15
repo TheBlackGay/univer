@@ -1,7 +1,35 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Layout, Button, Spin, message } from 'antd';
-import { SaveOutlined, DownloadOutlined, UploadOutlined, PlusOutlined } from '@ant-design/icons';
+import { Layout, Button, Spin, message, Tooltip, Dropdown, Menu, Input, Modal, Space, Divider } from 'antd';
+import { 
+  SaveOutlined, 
+  DownloadOutlined, 
+  UploadOutlined, 
+  PlusOutlined,
+  DeleteOutlined,
+  UndoOutlined,
+  RedoOutlined,
+  SearchOutlined,
+  CopyOutlined,
+  ScissorOutlined,
+  SnippetsOutlined,
+  FormatPainterOutlined,
+  BoldOutlined,
+  ItalicOutlined,
+  UnderlineOutlined,
+  AlignLeftOutlined,
+  AlignCenterOutlined,
+  AlignRightOutlined,
+  ColumnHeightOutlined,
+  ColumnWidthOutlined,
+  BorderOutlined,
+  NumberOutlined,
+  PercentageOutlined,
+  DollarOutlined,
+  FontColorsOutlined,
+  BgColorsOutlined,
+  FilterOutlined
+} from '@ant-design/icons';
 import { AgGridReact } from 'ag-grid-react';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
@@ -9,7 +37,8 @@ import axios from 'axios';
 import * as XLSX from 'xlsx';
 import './styles.css'; // 我们需要创建这个文件
 
-const { Header, Content } = Layout;
+const { Header, Content, Footer } = Layout;
+const { Search } = Input;
 const API_URL = 'http://localhost:3000/api';
 
 interface Cell {
@@ -31,6 +60,11 @@ const SpreadsheetView: React.FC = () => {
   const [sheet, setSheet] = useState<Sheet | null>(null);
   const [rowData, setRowData] = useState<any[]>([]);
   const [columnDefs, setColumnDefs] = useState<any[]>([]);
+  const [selectedCells, setSelectedCells] = useState<any[]>([]);
+  const [searchValue, setSearchValue] = useState('');
+  const [undoStack, setUndoStack] = useState<any[]>([]);
+  const [redoStack, setRedoStack] = useState<any[]>([]);
+  const [statusText, setStatusText] = useState('就绪');
   const gridRef = useRef<any>(null);
 
   // 获取电子表格数据
@@ -78,6 +112,43 @@ const SpreadsheetView: React.FC = () => {
       fetchSheet();
     }
   }, [id, navigate]);
+
+  // 添加全局键盘事件监听
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // 只处理表格获得焦点时的快捷键
+      if (!gridRef.current || !document.activeElement?.closest('.ag-theme-alpine')) {
+        return;
+      }
+      
+      if (e.ctrlKey) {
+        switch (e.key) {
+          case 'z':
+            e.preventDefault();
+            undo();
+            break;
+          case 'y':
+            e.preventDefault();
+            redo();
+            break;
+          case 'c':
+            // 复制由浏览器原生处理，但我们也调用自己的方法
+            copySelectedCells();
+            break;
+          case 'v':
+            // 粘贴由浏览器原生处理，但我们也调用自己的方法
+            setTimeout(() => pasteToSelectedCell(), 0);
+            break;
+        }
+      }
+    };
+    
+    document.addEventListener('keydown', handleKeyDown);
+    
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [rowData, columnDefs]); // 依赖项包含可能在快捷键处理中使用的状态
 
   // 添加行号列
   const addRowNumberColumn = () => {
@@ -200,6 +271,9 @@ const SpreadsheetView: React.FC = () => {
   // 添加新行
   const addNewRow = () => {
     if (gridRef.current) {
+      // 保存当前状态到撤销栈
+      saveUndoState();
+      
       const api = gridRef.current.api;
       const currentRowData = [...rowData];
       
@@ -235,6 +309,246 @@ const SpreadsheetView: React.FC = () => {
       }, 100);
       
       message.success('已添加新行');
+      setStatusText(`已添加第 ${currentRowData.length + 1} 行`);
+    }
+  };
+
+  // 删除选中行
+  const deleteSelectedRows = () => {
+    if (!gridRef.current) return;
+    
+    // 保存当前状态到撤销栈
+    saveUndoState();
+    
+    const api = gridRef.current.api;
+    const selectedNodes = api.getSelectedNodes();
+    
+    if (selectedNodes.length === 0) {
+      message.info('请先选择要删除的行');
+      return;
+    }
+    
+    // 获取选中行的索引
+    const selectedIndices = selectedNodes.map(node => node.rowIndex);
+    
+    // 过滤掉选中的行
+    const newRowData = rowData.filter((_, index) => !selectedIndices.includes(index));
+    
+    // 更新行ID
+    const updatedRowData = newRowData.map((row, index) => ({
+      ...row,
+      id: `row_${index}`
+    }));
+    
+    setRowData(updatedRowData);
+    message.success(`已删除 ${selectedNodes.length} 行`);
+    setStatusText(`已删除 ${selectedNodes.length} 行`);
+  };
+
+  // 保存当前状态到撤销栈
+  const saveUndoState = () => {
+    setUndoStack([...undoStack, [...rowData]]);
+    // 清空重做栈
+    setRedoStack([]);
+  };
+
+  // 撤销操作
+  const undo = () => {
+    if (undoStack.length === 0) {
+      message.info('没有可撤销的操作');
+      return;
+    }
+    
+    // 保存当前状态到重做栈
+    setRedoStack([...redoStack, [...rowData]]);
+    
+    // 恢复上一个状态
+    const previousState = undoStack[undoStack.length - 1];
+    setRowData(previousState);
+    
+    // 从撤销栈中移除已恢复的状态
+    setUndoStack(undoStack.slice(0, -1));
+    
+    message.success('已撤销上一步操作');
+    setStatusText('已撤销');
+  };
+
+  // 重做操作
+  const redo = () => {
+    if (redoStack.length === 0) {
+      message.info('没有可重做的操作');
+      return;
+    }
+    
+    // 保存当前状态到撤销栈
+    setUndoStack([...undoStack, [...rowData]]);
+    
+    // 恢复下一个状态
+    const nextState = redoStack[redoStack.length - 1];
+    setRowData(nextState);
+    
+    // 从重做栈中移除已恢复的状态
+    setRedoStack(redoStack.slice(0, -1));
+    
+    message.success('已重做操作');
+    setStatusText('已重做');
+  };
+
+  // 搜索单元格
+  const searchCells = (value: string) => {
+    if (!value.trim() || !gridRef.current) {
+      return;
+    }
+    
+    const api = gridRef.current.api;
+    const searchText = value.toLowerCase();
+    const foundCells: any[] = [];
+    
+    // 遍历所有行和单元格
+    api.forEachNode((node: any) => {
+      if (!node.data) return;
+      
+      Object.entries(node.data).forEach(([key, cellValue]) => {
+        if (key !== 'id' && key !== 'rowNum' && cellValue !== undefined && cellValue !== null) {
+          const valueStr = String(cellValue).toLowerCase();
+          if (valueStr.includes(searchText)) {
+            foundCells.push({
+              rowIndex: node.rowIndex,
+              colId: key
+            });
+          }
+        }
+      });
+    });
+    
+    if (foundCells.length > 0) {
+      // 高亮第一个找到的单元格
+      api.ensureIndexVisible(foundCells[0].rowIndex);
+      api.setFocusedCell(foundCells[0].rowIndex, foundCells[0].colId);
+      
+      message.success(`找到 ${foundCells.length} 个匹配项`);
+      setStatusText(`找到 ${foundCells.length} 个匹配项`);
+    } else {
+      message.info('未找到匹配项');
+      setStatusText('未找到匹配项');
+    }
+  };
+
+  // 复制选中单元格
+  const copySelectedCells = () => {
+    if (!gridRef.current) return;
+    
+    const api = gridRef.current.api;
+    const ranges = api.getCellRanges();
+    
+    if (!ranges || ranges.length === 0) {
+      message.info('请先选择要复制的单元格');
+      return;
+    }
+    
+    // 获取选中范围
+    const range = ranges[0];
+    const startRow = range.startRow.rowIndex;
+    const endRow = range.endRow.rowIndex;
+    const columns = range.columns;
+    
+    // 构建复制数据
+    let copyData = '';
+    for (let rowIndex = startRow; rowIndex <= endRow; rowIndex++) {
+      const rowNode = api.getDisplayedRowAtIndex(rowIndex);
+      if (!rowNode) continue;
+      
+      const rowValues = columns.map((col: any) => {
+        const value = rowNode.data[col.colId];
+        return value !== undefined && value !== null ? value : '';
+      });
+      
+      copyData += rowValues.join('\t') + '\n';
+    }
+    
+    // 复制到剪贴板
+    navigator.clipboard.writeText(copyData)
+      .then(() => {
+        message.success('已复制到剪贴板');
+        setStatusText('已复制');
+      })
+      .catch(err => {
+        console.error('复制失败:', err);
+        message.error('复制失败');
+      });
+  };
+
+  // 粘贴到选中单元格
+  const pasteToSelectedCell = async () => {
+    if (!gridRef.current) return;
+    
+    try {
+      // 保存当前状态到撤销栈
+      saveUndoState();
+      
+      const api = gridRef.current.api;
+      const focusedCell = api.getFocusedCell();
+      
+      if (!focusedCell) {
+        message.info('请先选择要粘贴的位置');
+        return;
+      }
+      
+      // 从剪贴板获取文本
+      const text = await navigator.clipboard.readText();
+      if (!text) {
+        message.info('剪贴板为空');
+        return;
+      }
+      
+      // 解析粘贴的数据（按制表符和换行符分割）
+      const rows = text.split('\n').filter(row => row.trim());
+      const startRowIndex = focusedCell.rowIndex;
+      const startColId = focusedCell.column.colId;
+      
+      // 如果不是以col_开头的列ID，则不处理
+      if (!startColId.startsWith('col_')) {
+        message.info('不能粘贴到此位置');
+        return;
+      }
+      
+      const startColIndex = parseInt(startColId.replace('col_', ''), 10);
+      
+      // 更新数据
+      const newRowData = [...rowData];
+      rows.forEach((rowStr, rowOffset) => {
+        const rowIndex = startRowIndex + rowOffset;
+        
+        // 如果行不存在，则添加新行
+        if (rowIndex >= newRowData.length) {
+          const newRow: Record<string, any> = { id: `row_${rowIndex}` };
+          for (let i = 0; i < columnDefs.length - 1; i++) {
+            newRow[`col_${i}`] = '';
+          }
+          newRowData.push(newRow);
+        }
+        
+        // 分割行数据并填充单元格
+        const cells = rowStr.split('\t');
+        cells.forEach((cellValue, colOffset) => {
+          const colIndex = startColIndex + colOffset;
+          const colId = `col_${colIndex}`;
+          
+          // 确保列存在
+          if (colIndex < columnDefs.length - 1) {
+            newRowData[rowIndex][colId] = cellValue;
+          }
+        });
+      });
+      
+      setRowData(newRowData);
+      api.refreshCells({ force: true });
+      
+      message.success('粘贴成功');
+      setStatusText('已粘贴');
+    } catch (error) {
+      console.error('粘贴失败:', error);
+      message.error('粘贴失败');
     }
   };
 
@@ -414,6 +728,30 @@ const SpreadsheetView: React.FC = () => {
     reader.readAsArrayBuffer(file);
   };
 
+  // 单元格值变化处理
+  const handleCellValueChanged = (params: any) => {
+    console.log('单元格数据已修改:', params);
+    setStatusText(`已编辑单元格 ${params.column.colDef.headerName}${params.node.rowIndex + 1}`);
+  };
+
+  // 单元格选择变化处理
+  const handleRangeSelectionChanged = (params: any) => {
+    const ranges = params.api.getCellRanges();
+    if (ranges && ranges.length > 0) {
+      const range = ranges[0];
+      const startRow = range.startRow.rowIndex + 1;
+      const endRow = range.endRow.rowIndex + 1;
+      const startCol = range.columns[0].getColDef().headerName;
+      const endCol = range.columns[range.columns.length - 1].getColDef().headerName;
+      
+      if (startRow === endRow && startCol === endCol) {
+        setStatusText(`选中单元格 ${startCol}${startRow}`);
+      } else {
+        setStatusText(`选中区域 ${startCol}${startRow}:${endCol}${endRow}`);
+      }
+    }
+  };
+
   // 渲染电子表格组件
   if (loading) {
     return (
@@ -428,48 +766,78 @@ const SpreadsheetView: React.FC = () => {
       <Header style={{ 
         display: 'flex', 
         alignItems: 'center', 
-        padding: '0 24px',
-        background: 'linear-gradient(to right, #1a365d, #2563eb)'
+        padding: '0 16px',
+        background: '#f0f0f0',
+        height: '48px',
+        borderBottom: '1px solid #d9d9d9'
       }}>
         <div style={{ 
-          color: 'white', 
-          fontSize: '20px', 
+          color: '#333', 
+          fontSize: '16px', 
           fontWeight: 'bold',
           marginRight: 'auto' 
         }}>
           {sheet?.name || '未命名电子表格'}
         </div>
         <div>
+          <Search
+            placeholder="搜索内容"
+            onSearch={searchCells}
+            style={{ width: 200, marginRight: 8 }}
+            allowClear
+          />
           <Button 
             type="primary" 
             icon={<SaveOutlined />} 
             onClick={saveSheet}
-            style={{ marginRight: 10, background: '#10b981', borderColor: '#10b981' }}
+            style={{ marginRight: 8 }}
           >
             保存
           </Button>
-          <Button 
-            icon={<DownloadOutlined />} 
-            onClick={exportToExcel}
-            style={{ marginRight: 10 }}
-          >
-            导出
-          </Button>
-          <Button 
-            icon={<UploadOutlined />} 
-            onClick={() => document.getElementById('file-upload')?.click()}
-            style={{ marginRight: 10 }}
-          >
-            导入
-          </Button>
-          <Button 
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={addNewRow}
-            style={{ background: '#3b82f6', borderColor: '#3b82f6' }}
-          >
-            添加行
-          </Button>
+        </div>
+      </Header>
+      
+      {/* 工具栏 */}
+      <div className="excel-toolbar">
+        <Space>
+          <Tooltip title="撤销 (Ctrl+Z)">
+            <Button 
+              icon={<UndoOutlined />} 
+              onClick={undo}
+              disabled={undoStack.length === 0}
+            />
+          </Tooltip>
+          <Tooltip title="重做 (Ctrl+Y)">
+            <Button 
+              icon={<RedoOutlined />} 
+              onClick={redo}
+              disabled={redoStack.length === 0}
+            />
+          </Tooltip>
+          <Divider type="vertical" />
+          <Tooltip title="复制 (Ctrl+C)">
+            <Button icon={<CopyOutlined />} onClick={copySelectedCells} />
+          </Tooltip>
+          <Tooltip title="粘贴 (Ctrl+V)">
+            <Button icon={<SnippetsOutlined />} onClick={pasteToSelectedCell} />
+          </Tooltip>
+          <Divider type="vertical" />
+          <Tooltip title="添加行">
+            <Button icon={<PlusOutlined />} onClick={addNewRow} />
+          </Tooltip>
+          <Tooltip title="删除选中行">
+            <Button icon={<DeleteOutlined />} onClick={deleteSelectedRows} />
+          </Tooltip>
+          <Divider type="vertical" />
+          <Tooltip title="导出Excel">
+            <Button icon={<DownloadOutlined />} onClick={exportToExcel} />
+          </Tooltip>
+          <Tooltip title="导入Excel">
+            <Button 
+              icon={<UploadOutlined />} 
+              onClick={() => document.getElementById('file-upload')?.click()}
+            />
+          </Tooltip>
           <input
             id="file-upload"
             type="file"
@@ -477,15 +845,15 @@ const SpreadsheetView: React.FC = () => {
             style={{ display: 'none' }}
             onChange={importFromExcel}
           />
-        </div>
-      </Header>
-      <Content style={{ padding: 16, overflow: 'auto', background: '#f8fafc' }}>
+        </Space>
+      </div>
+      
+      <Content style={{ padding: 0, overflow: 'hidden' }}>
         <div 
           className="ag-theme-alpine" 
           style={{ 
             height: 'calc(100vh - 96px)', 
-            width: '100%',
-            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+            width: '100%'
           }}
         >
           <AgGridReact
@@ -498,23 +866,23 @@ const SpreadsheetView: React.FC = () => {
               sortable: true,
               filter: true,
               flex: 1,
-              minWidth: 100,
+              minWidth: 80,
               cellStyle: { padding: 0 }
             }}
             rowSelection="multiple"
             enableRangeSelection={true}
             suppressRowClickSelection={true}
             pagination={false}
-            rowHeight={22}
-            headerHeight={28}
+            rowHeight={21}
+            headerHeight={24}
             suppressMenuHide={true}
             rowStyle={{ 
-              borderBottom: '1px solid #e5e7eb',
+              borderBottom: '1px solid #e0e0e0',
               margin: 0,
               padding: 0
             }}
             getRowId={(params) => params.data.id.toString()}
-            getRowClass={(params) => params.rowIndex % 2 === 0 ? 'even-row' : 'odd-row'}
+            getRowClass={() => 'excel-row'}
             enableCellChangeFlash={true}
             suppressDragLeaveHidesColumns={true}
             ensureDomOrder={true}
@@ -522,13 +890,30 @@ const SpreadsheetView: React.FC = () => {
             enableCellTextSelection={true}
             animateRows={true}
             rowBuffer={20}
-            onCellValueChanged={(params) => {
-              // 确保单元格值变化后刷新表格
-              console.log('单元格数据已修改:', params);
+            onCellValueChanged={handleCellValueChanged}
+            onRangeSelectionChanged={handleRangeSelectionChanged}
+            onCellClicked={(params: any) => {
+              if (params.colDef.field !== 'rowNum') {
+                const rowIndex = params.node.rowIndex !== null ? params.node.rowIndex + 1 : '';
+                setStatusText(`单元格 ${params.column.getColDef().headerName}${rowIndex}`);
+              }
+            }}
+            onCellDoubleClicked={(params: any) => {
+              if (params.colDef.field !== 'rowNum') {
+                params.api.startEditingCell({
+                  rowIndex: params.node.rowIndex || 0,
+                  colKey: params.column.getColId()
+                });
+              }
             }}
           />
         </div>
       </Content>
+      
+      {/* 状态栏 */}
+      <Footer className="excel-statusbar">
+        {statusText}
+      </Footer>
     </Layout>
   );
 };

@@ -1,39 +1,40 @@
 /* Excel风格表格样式 */
 .ag-theme-alpine {
-  --ag-header-background-color: #f2f5fa;
-  --ag-header-foreground-color: #344054;
-  --ag-header-cell-hover-background-color: #e6eaf2;
-  --ag-row-hover-color: #f8faff;
-  --ag-selected-row-background-color: #eef4ff;
+  --ag-header-background-color: #f3f3f3;
+  --ag-header-foreground-color: #333333;
+  --ag-header-cell-hover-background-color: #e6e6e6;
+  --ag-row-hover-color: #f5f5f5;
+  --ag-selected-row-background-color: #e6f7ff;
   --ag-font-size: 12px;
   --ag-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  --ag-cell-horizontal-border: 1px solid #e5e7eb;
-  --ag-cell-vertical-border: 1px solid #e5e7eb;
-  --ag-border-color: #d0d7de;
-  --ag-alpine-active-color: #3b82f6;
-  --ag-range-selection-background-color: rgba(59, 130, 246, 0.2);
-  --ag-range-selection-border-color: #3b82f6;
+  --ag-cell-horizontal-border: 1px solid #e0e0e0;
+  --ag-cell-vertical-border: 1px solid #e0e0e0;
+  --ag-border-color: #d0d0d0;
+  --ag-alpine-active-color: #1890ff;
+  --ag-range-selection-background-color: rgba(24, 144, 255, 0.15);
+  --ag-range-selection-border-color: #1890ff;
   --ag-row-border-style: solid;
   --ag-row-border-width: 1px;
-  --ag-row-border-color: #e5e7eb;
+  --ag-row-border-color: #e0e0e0;
   
-  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
-  border-radius: 4px;
-  border: 1px solid #e5e7eb;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+  border-radius: 0;
+  border: 1px solid #d9d9d9;
   overflow: hidden;
 }
 
 /* 表头样式 */
 .ag-theme-alpine .ag-header {
-  border-bottom: 1px solid #d1d5db;
+  border-bottom: 1px solid #d9d9d9;
+  background-color: #f3f3f3;
 }
 
 .ag-header-cell {
-  border-right: 1px solid #d1d5db !important;
-  border-bottom: 1px solid #d1d5db !important;
-  height: 28px !important;
+  border-right: 1px solid #d9d9d9 !important;
+  border-bottom: 1px solid #d9d9d9 !important;
+  height: 24px !important;
   padding: 0 !important;
-  font-weight: 600 !important;
+  font-weight: 500 !important;
   text-align: center !important;
   display: flex;
   align-items: center;
@@ -41,44 +42,46 @@
 }
 
 .ag-header-cell-resize::after {
-  background-color: #d1d5db !important;
+  background-color: #d9d9d9 !important;
+  width: 2px !important;
 }
 
 /* 行和单元格样式 */
 .ag-theme-alpine .ag-row {
   border: none;
-  height: 22px !important;
-  min-height: 22px !important;
-  line-height: 22px !important;
+  height: 21px !important;
+  min-height: 21px !important;
+  line-height: 21px !important;
   padding: 0 !important;
   margin: 0 !important;
 }
 
 .ag-theme-alpine .ag-cell {
-  border-right: 1px solid #e5e7eb;
-  border-bottom: 1px solid #e5e7eb;
+  border-right: 1px solid #e0e0e0;
+  border-bottom: 1px solid #e0e0e0;
   padding: 0 2px !important;
-  line-height: 22px !important;
+  line-height: 21px !important;
   display: flex;
   align-items: center;
 }
 
 /* 行号列样式 */
 .row-number-header {
-  background-color: #f1f5f9 !important;
-  border-right: 1px solid #d1d5db !important;
-  border-bottom: 1px solid #d1d5db !important;
+  background-color: #f3f3f3 !important;
+  border-right: 1px solid #d9d9d9 !important;
+  border-bottom: 1px solid #d9d9d9 !important;
   padding: 0 !important;
   display: flex;
   align-items: center;
   justify-content: center;
+  font-weight: normal !important;
 }
 
 .row-number-cell {
-  background-color: #f8fafc !important;
-  border-right: 1px solid #d1d5db !important;
-  color: #64748b !important;
-  font-weight: 500 !important;
+  background-color: #f3f3f3 !important;
+  border-right: 1px solid #d9d9d9 !important;
+  color: #666 !important;
+  font-weight: normal !important;
   display: flex;
   justify-content: center;
   align-items: center;
@@ -90,9 +93,9 @@
 .ag-cell-inline-editing {
   padding: 0 !important;
   height: 100% !important;
-  border: 2px solid #3b82f6 !important;
+  border: 2px solid #1890ff !important;
   background-color: #fff !important;
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3) !important;
+  box-shadow: 0 0 0 1px rgba(24, 144, 255, 0.3) !important;
 }
 
 .ag-cell-inline-editing input {
@@ -104,71 +107,102 @@
   background: white;
 }
 
-/* 交替行颜色 */
-.even-row {
+/* 交替行颜色 - Excel原生没有交替色 */
+.even-row, .odd-row {
   background-color: #ffffff;
-}
-
-.odd-row {
-  background-color: #f9fafb;
 }
 
 /* 聚焦单元格样式 */
 .ag-cell-focus {
-  border: 2px solid #3b82f6 !important;
+  border: 2px solid #1890ff !important;
   outline: none !important;
   padding: 0 !important;
+  z-index: 1;
 }
 
 /* 选择范围样式 */
 .ag-range-selected-color-1 {
-  background-color: rgba(59, 130, 246, 0.15) !important;
-  border: 1px solid #3b82f6 !important;
+  background-color: rgba(24, 144, 255, 0.1) !important;
+  border: 1px solid #1890ff !important;
 }
 
 /* 悬停效果 */
 .ag-row:hover {
-  background-color: #f3f8ff !important;
+  background-color: #f5f5f5 !important;
 }
 
 .ag-column-hover {
-  background-color: #f3f8ff !important;
+  background-color: #f5f5f5 !important;
 }
 
-/* 菜单样式 */
+/* 单元格活动状态 */
+.ag-cell-range-selected {
+  background-color: rgba(24, 144, 255, 0.1) !important;
+}
+
+/* 右键菜单样式 */
 .ag-menu {
-  border-radius: 6px !important;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06) !important;
-  border: 1px solid #e5e7eb !important;
+  border-radius: 2px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
+  border: 1px solid #d9d9d9 !important;
+  padding: 4px 0 !important;
 }
 
-/* 输入框样式 */
-.ag-text-field-input {
-  border-radius: 4px !important;
-  border: 1px solid #d1d5db !important;
-  padding: 4px 8px !important;
+.ag-menu-option {
+  height: 32px !important;
+  line-height: 32px !important;
+  padding: 0 12px !important;
+}
+
+.ag-menu-option:hover {
+  background-color: #f5f5f5 !important;
+}
+
+.ag-menu-separator {
+  border-top: 1px solid #e8e8e8 !important;
+  margin: 4px 0 !important;
 }
 
 /* 选中单元格的样式 */
 .ag-cell-selected {
-  background-color: rgba(59, 130, 246, 0.1) !important;
+  background-color: rgba(24, 144, 255, 0.05) !important;
 }
 
 /* 表格整体布局 */
 .ag-root {
-  border-radius: 8px;
+  border-radius: 0;
   overflow: hidden;
+}
+
+/* 工具栏样式 */
+.excel-toolbar {
+  display: flex;
+  align-items: center;
+  background-color: #f5f5f5;
+  border-bottom: 1px solid #e0e0e0;
+  padding: 4px 8px;
+}
+
+.excel-toolbar .ant-btn {
+  margin-right: 4px;
+  border-radius: 2px;
+}
+
+/* 状态栏样式 */
+.excel-statusbar {
+  display: flex;
+  align-items: center;
+  background-color: #f5f5f5;
+  border-top: 1px solid #e0e0e0;
+  padding: 2px 8px;
+  font-size: 12px;
+  color: #666;
+  height: 22px;
 }
 
 /* 平滑动画效果 */
 .ag-row, .ag-cell {
   transition: background-color 0.15s ease-in-out;
-}
-
-/* 工具栏样式 */
-.ag-header-bar {
-  background-color: #f8fafc !important;
-  border-bottom: 1px solid #e5e7eb !important;
 }
 
 /* 空白数据状态 */
