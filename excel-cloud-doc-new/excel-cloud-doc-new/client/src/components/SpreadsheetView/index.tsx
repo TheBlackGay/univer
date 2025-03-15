@@ -70,7 +70,7 @@ const SpreadsheetView: React.FC = () => {
         const colId = String.fromCharCode(65 + i); // A-Z
         return {
           headerName: colId,
-          field: colId.toLowerCase(),
+          field: `col_${i}`, // 使用一致的字段名称格式
           editable: true,
           width: 100,
         };
@@ -92,9 +92,13 @@ const SpreadsheetView: React.FC = () => {
     // 确定表格的行数和列数
     const maxRow = Math.max(...cells.map(cell => cell.row)) + 1;
     const maxCol = Math.max(...cells.map(cell => cell.col)) + 1;
+    
+    // 确保至少有一行一列
+    const numRows = Math.max(maxRow, 1);
+    const numCols = Math.max(maxCol, 26); // 至少有26列 (A-Z)
 
     // 创建列定义
-    const colDefs = Array.from({ length: maxCol }, (_, i) => {
+    const colDefs = Array.from({ length: numCols }, (_, i) => {
       const colId = String.fromCharCode(65 + i); // A-Z, 如果超过Z需要额外处理
       return {
         headerName: colId,
@@ -105,10 +109,10 @@ const SpreadsheetView: React.FC = () => {
     });
 
     // 创建行数据
-    const rows = Array.from({ length: maxRow }, (_, rowIndex) => {
+    const rows = Array.from({ length: numRows }, (_, rowIndex) => {
       const rowData: any = { id: rowIndex };
       // 初始化所有单元格为空
-      for (let colIndex = 0; colIndex < maxCol; colIndex++) {
+      for (let colIndex = 0; colIndex < numCols; colIndex++) {
         rowData[`col_${colIndex}`] = '';
       }
       return rowData;
@@ -116,13 +120,17 @@ const SpreadsheetView: React.FC = () => {
 
     // 填充实际数据
     cells.forEach(cell => {
-      if (rows[cell.row]) {
-        rows[cell.row][`col_${cell.col}`] = cell.value;
+      const { row, col, value } = cell;
+      if (rows[row] && col < numCols) {
+        rows[row][`col_${col}`] = value;
       }
     });
 
     setColumnDefs(colDefs);
     setRowData(rows);
+    
+    console.log('处理后的列定义:', colDefs);
+    console.log('处理后的行数据:', rows);
   };
 
   // 保存电子表格
@@ -142,14 +150,18 @@ const SpreadsheetView: React.FC = () => {
       // 转换为后端需要的Cell格式
       const cells: Cell[] = [];
       allData.forEach((rowData, rowIndex) => {
-        columnDefs.forEach((col, colIndex) => {
-          const cellValue = rowData[col.field];
-          if (cellValue !== undefined && cellValue !== '') {
-            cells.push({
-              row: rowIndex,
-              col: colIndex,
-              value: cellValue
-            });
+        // 跳过id字段
+        Object.entries(rowData).forEach(([key, value]) => {
+          if (key !== 'id' && value !== undefined && value !== '') {
+            // 从字段名称中提取列索引，例如 'col_0' -> 0
+            const colIndex = parseInt(key.split('_')[1], 10);
+            if (!isNaN(colIndex)) {
+              cells.push({
+                row: rowIndex,
+                col: colIndex,
+                value: value as string | number
+              });
+            }
           }
         });
       });
@@ -237,19 +249,42 @@ const SpreadsheetView: React.FC = () => {
         
         // 处理为AG Grid可用的格式
         const jsonArray = jsonData as unknown[][];
-        if (jsonArray.length > 0 && Array.isArray(jsonArray[0])) {
-          const columns = jsonArray[0].map((header: unknown, index: number) => ({
-            headerName: header ? String(header) : String.fromCharCode(65 + index),
-            field: `col_${index}`,
+        if (jsonArray.length > 0) {
+          // 确定列数
+          let maxCols = 0;
+          jsonArray.forEach(row => {
+            if (Array.isArray(row) && row.length > maxCols) {
+              maxCols = row.length;
+            }
+          });
+          maxCols = Math.max(maxCols, 26); // 最少26列
+          
+          // 创建列定义
+          const columns = Array.from({ length: maxCols }, (_, i) => ({
+            headerName: String.fromCharCode(65 + i), // A-Z
+            field: `col_${i}`,
             editable: true,
             width: 100
           }));
 
-          const rows = jsonArray.slice(1).map((row: unknown[], rowIndex: number) => {
+          // 创建行数据
+          const rows = jsonArray.map((row: unknown[], rowIndex: number) => {
             const rowData: any = { id: rowIndex };
-            row.forEach((cell: unknown, colIndex: number) => {
-              rowData[`col_${colIndex}`] = cell || '';
-            });
+            
+            // 初始化所有单元格为空
+            for (let colIndex = 0; colIndex < maxCols; colIndex++) {
+              rowData[`col_${colIndex}`] = '';
+            }
+            
+            // 填充数据
+            if (Array.isArray(row)) {
+              row.forEach((cellValue, colIndex) => {
+                if (colIndex < maxCols && cellValue !== null && cellValue !== undefined) {
+                  rowData[`col_${colIndex}`] = cellValue;
+                }
+              });
+            }
+            
             return rowData;
           });
 
@@ -258,7 +293,7 @@ const SpreadsheetView: React.FC = () => {
           
           message.success('导入成功');
         } else {
-          message.error('Excel文件格式不正确');
+          message.error('Excel文件格式不正确或为空');
         }
       } catch (error) {
         console.error('导入失败:', error);

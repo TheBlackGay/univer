@@ -97,12 +97,22 @@ function AppContent() {
       title: '操作',
       key: 'action',
       render: (_: any, record: Document) => (
-        <Button 
-          icon={<DownloadOutlined />} 
-          onClick={() => downloadDocument(record.id)}
-        >
-          下载
-        </Button>
+        <div>
+          <Button 
+            icon={<DownloadOutlined />} 
+            onClick={() => downloadDocument(record.id)}
+            style={{ marginRight: 8 }}
+          >
+            下载
+          </Button>
+          <Button 
+            danger
+            onClick={() => deleteDocument(record.id)}
+            style={{ marginRight: 8 }}
+          >
+            删除
+          </Button>
+        </div>
       )
     }
   ];
@@ -133,6 +143,33 @@ function AppContent() {
     } catch (error) {
       console.error('下载失败:', error);
       message.error('下载文档失败');
+    }
+  };
+
+  // 删除文档
+  const deleteDocument = async (id: string) => {
+    try {
+      // 确保ID是数字
+      const numericId = parseInt(id, 10);
+      if (isNaN(numericId)) {
+        throw new Error(`无效的ID格式: ${id}`);
+      }
+      
+      // 弹出确认对话框
+      Modal.confirm({
+        title: '确认删除',
+        content: '确定要删除这个文档吗？此操作不可恢复。',
+        okText: '确认',
+        cancelText: '取消',
+        onOk: async () => {
+          await axios.delete(`${API_URL}/sheets/${numericId}`);
+          message.success('文档已删除');
+          refetch(); // 重新加载文档列表
+        }
+      });
+    } catch (error) {
+      console.error('删除失败:', error);
+      message.error('删除文档失败');
     }
   };
 
