@@ -33,6 +33,15 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api/docs', app, document);
   
+  // 添加日志中间件
+  app.use((req, res, next) => {
+    console.log(`接收到请求: ${req.method} ${req.url}`);
+    if (['POST', 'PUT'].includes(req.method)) {
+      console.log('请求体:', JSON.stringify(req.body, null, 2));
+    }
+    next();
+  });
+  
   // 启动服务器
   const port = process.env.PORT || 3000; // 修改为3000端口
   await app.listen(port);

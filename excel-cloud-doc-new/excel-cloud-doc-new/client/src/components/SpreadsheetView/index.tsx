@@ -143,12 +143,12 @@ const SpreadsheetView: React.FC = () => {
       const cells: Cell[] = [];
       allData.forEach((rowData, rowIndex) => {
         columnDefs.forEach((col, colIndex) => {
-          const value = rowData[col.field];
-          if (value !== undefined && value !== '') {
+          const cellValue = rowData[col.field];
+          if (cellValue !== undefined && cellValue !== '') {
             cells.push({
               row: rowIndex,
               col: colIndex,
-              value: value
+              value: cellValue
             });
           }
         });

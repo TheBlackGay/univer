@@ -21,6 +21,7 @@ export class CellDto implements Cell {
   col: number;
 
   @ApiProperty({ description: '单元格值', example: '数据' })
+  @IsOptional()
   value: string | number;
 }
 
