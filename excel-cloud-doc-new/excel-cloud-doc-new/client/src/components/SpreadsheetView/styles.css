@@ -41,6 +41,24 @@
   justify-content: center;
 }
 
+/* 确保表头文本居中 */
+.excel-centered-header {
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  text-align: center !important;
+}
+
+.excel-centered-header .ag-header-cell-label {
+  justify-content: center !important;
+  width: 100% !important;
+}
+
+.excel-centered-header .ag-header-cell-text {
+  text-align: center !important;
+  margin: 0 auto !important;
+}
+
 .ag-header-cell-resize::after {
   background-color: #d9d9d9 !important;
   width: 2px !important;

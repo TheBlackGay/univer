@@ -28,7 +28,8 @@ import {
   DollarOutlined,
   FontColorsOutlined,
   BgColorsOutlined,
-  FilterOutlined
+  FilterOutlined,
+  AppstoreAddOutlined
 } from '@ant-design/icons';
 import { AgGridReact } from 'ag-grid-react';
 import 'ag-grid-community/styles/ag-grid.css';
@@ -121,7 +122,10 @@ const SpreadsheetView: React.FC = () => {
         return;
       }
       
-      if (e.ctrlKey) {
+      // 同时支持Windows的Ctrl键和Mac的Command键
+      const isModifierKey = e.ctrlKey || e.metaKey;
+      
+      if (isModifierKey) {
         switch (e.key) {
           case 'z':
             e.preventDefault();
@@ -177,7 +181,81 @@ const SpreadsheetView: React.FC = () => {
         display: 'flex',
         justifyContent: 'center',
         alignItems: 'center'
+      },
+      // 添加点击行号选中整行的事件处理
+      onCellClicked: (params: any) => {
+        if (params.node) {
+          // 选中当前行
+          params.node.setSelected(true);
+          // 更新状态栏
+          const rowIndex = params.node.rowIndex + 1;
+          setStatusText(`已选中第 ${rowIndex} 行`);
+        }
       }
+    };
+  };
+
+  // 添加选中整列的功能
+  const selectEntireColumn = (colId: string) => {
+    if (!gridRef.current) return;
+    
+    const api = gridRef.current.api;
+    const column = api.getColumnDef(colId);
+    
+    if (!column) return;
+    
+    // 行数
+    const rowCount = rowData.length;
+    
+    // 如果是行号列，不执行选中
+    if (colId === 'rowNum') return;
+    
+    // 创建范围选择
+    const startRow = 0;
+    const endRow = rowCount - 1;
+    
+    api.clearRangeSelection();
+    
+    // 选中整列
+    api.addCellRange({
+      rowStartIndex: startRow,
+      rowEndIndex: endRow,
+      columnStart: colId,
+      columnEnd: colId
+    });
+    
+    // 更新状态栏
+    setStatusText(`已选中 ${column.headerName} 列`);
+  };
+
+  // 重新定义列定义，添加表头点击事件
+  const createColumnDef = (headerName: string, field: string, options: any = {}) => {
+    return {
+      headerName,
+      field,
+      editable: true,
+      resizable: true,
+      sortable: false,
+      headerClass: 'excel-centered-header',
+      // 添加点击表头选中整列的功能
+      headerComponentParams: {
+        // AG Grid 提供的表头组件参数
+        template: 
+          `<div class="ag-cell-label-container" role="presentation">
+            <span ref="eMenu" class="ag-header-icon ag-header-cell-menu-button" aria-hidden="true"></span>
+            <div ref="eLabel" class="ag-header-cell-label" role="presentation">
+              <span ref="eText" class="ag-header-cell-text" role="columnheader"></span>
+              <span ref="eSortOrder" class="ag-header-icon ag-sort-order" aria-hidden="true"></span>
+              <span ref="eSortAsc" class="ag-header-icon ag-sort-ascending-icon" aria-hidden="true"></span>
+              <span ref="eSortDesc" class="ag-header-icon ag-sort-descending-icon" aria-hidden="true"></span>
+              <span ref="eSortNone" class="ag-header-icon ag-sort-none-icon" aria-hidden="true"></span>
+              <span ref="eFilter" class="ag-header-icon ag-filter-icon" aria-hidden="true"></span>
+            </div>
+          </div>`,
+        // 自定义点击事件
+        onClick: () => selectEntireColumn(field)
+      },
+      ...options
     };
   };
 
@@ -192,12 +270,12 @@ const SpreadsheetView: React.FC = () => {
     if (!sheet || !sheet.data || sheet.data.length === 0) {
       // 创建默认的26列 (A-Z)
       for (let col = 0; col < 26; col++) {
-        columnDefs.push({
-          headerName: String.fromCharCode(65 + col),
-          field: `col_${col}`,
-          editable: true,
-          resizable: true
-        });
+        columnDefs.push(
+          createColumnDef(
+            String.fromCharCode(65 + col), 
+            `col_${col}`
+          )
+        );
       }
 
       // 创建默认的100行
@@ -231,12 +309,22 @@ const SpreadsheetView: React.FC = () => {
 
     // 创建列定义
     for (let col = 0; col <= maxCol; col++) {
-      columnDefs.push({
-        headerName: String.fromCharCode(65 + col),
-        field: `col_${col}`,
-        editable: true,
-        resizable: true
-      });
+      // 确定列标题（超过26列后使用AA, AB等格式）
+      let colHeader = '';
+      if (col < 26) {
+        colHeader = String.fromCharCode(65 + col);
+      } else {
+        const firstChar = String.fromCharCode(65 + Math.floor((col - 26) / 26));
+        const secondChar = String.fromCharCode(65 + ((col - 26) % 26));
+        colHeader = firstChar + secondChar;
+      }
+      
+      columnDefs.push(
+        createColumnDef(
+          colHeader, 
+          `col_${col}`
+        )
+      );
     }
 
     // 创建行数据
@@ -295,14 +383,18 @@ const SpreadsheetView: React.FC = () => {
       
       // 滚动到新行位置并立即开始编辑第一个单元格
       setTimeout(() => {
-        api.ensureIndexVisible(currentRowData.length, 'bottom');
+        // 新行的索引就是更新后数据的长度减1
+        const newRowIndex = updatedRowData.length - 1;
+        
+        // 确保行可见，滚动到底部
+        api.ensureIndexVisible(newRowIndex, 'bottom');
         api.refreshCells({ force: true });
         
         // 可选：聚焦到新行的第一个可编辑单元格
         if (columnDefs.length > 1) {
           const firstEditableColId = columnDefs[1].field; // 第二列（跳过行号列）
           api.startEditingCell({
-            rowIndex: currentRowData.length,
+            rowIndex: newRowIndex,
             colKey: firstEditableColId
           });
         }
@@ -329,7 +421,7 @@ const SpreadsheetView: React.FC = () => {
     }
     
     // 获取选中行的索引
-    const selectedIndices = selectedNodes.map(node => node.rowIndex);
+    const selectedIndices = selectedNodes.map((node: any) => node.rowIndex);
     
     // 过滤掉选中的行
     const newRowData = rowData.filter((_, index) => !selectedIndices.includes(index));
@@ -625,26 +717,51 @@ const SpreadsheetView: React.FC = () => {
 
     try {
       const gridApi = gridRef.current.api;
-      const worksheetData: any[] = [];
+      
+      // 获取表头信息
+      const headerRow: Record<string, string> = {};
+      columnDefs.forEach(col => {
+        // 跳过行号列
+        if (col.field !== 'rowNum') {
+          headerRow[col.field] = col.headerName;
+        }
+      });
       
       // 收集所有单元格数据
+      const rowsData: Record<string, any>[] = [];
+      
+      // 先添加表头行
+      rowsData.push(headerRow);
+      
+      // 然后添加数据行
       gridApi.forEachNode((node: any) => {
         if (node.data) {
-          const rowData = { ...node.data };
-          delete rowData.id; // 移除id字段
-          worksheetData.push(rowData);
+          const rowData: Record<string, any> = {};
+          
+          // 遍历所有列（除了行号列和id）
+          Object.entries(node.data).forEach(([key, value]) => {
+            if (key !== 'id' && key !== 'rowNum') {
+              rowData[key] = value;
+            }
+          });
+          
+          rowsData.push(rowData);
         }
       });
 
       // 创建工作簿和工作表
       const wb = XLSX.utils.book_new();
-      const ws = XLSX.utils.json_to_sheet(worksheetData);
+      
+      // 使用自定义表头创建工作表
+      const ws = XLSX.utils.json_to_sheet(rowsData, { skipHeader: true });
+      
       XLSX.utils.book_append_sheet(wb, ws, sheet.name || 'Sheet1');
       
       // 导出Excel文件
       XLSX.writeFile(wb, `${sheet.name || 'spreadsheet'}.xlsx`);
       
       message.success('导出成功');
+      setStatusText('已导出到Excel文件');
     } catch (error) {
       console.error('导出失败:', error);
       message.error('导出失败');
@@ -752,6 +869,112 @@ const SpreadsheetView: React.FC = () => {
     }
   };
 
+  // 添加删除选中列的功能
+  const deleteSelectedColumns = () => {
+    if (!gridRef.current) return;
+    
+    // 保存当前状态到撤销栈
+    saveUndoState();
+    
+    const api = gridRef.current.api;
+    const ranges = api.getCellRanges();
+    
+    if (!ranges || ranges.length === 0) {
+      message.info('请先选择要删除的列');
+      return;
+    }
+    
+    // 获取选中的列
+    const selectedColumns = ranges[0].columns;
+    if (selectedColumns.length === 0) {
+      message.info('请先选择要删除的列');
+      return;
+    }
+    
+    // 获取要删除的列ID（排除行号列）
+    const colIdsToDelete: string[] = selectedColumns
+      .map((col: any) => col.colId)
+      .filter((colId: string) => colId !== 'rowNum');
+    
+    if (colIdsToDelete.length === 0) {
+      message.info('不能删除行号列');
+      return;
+    }
+    
+    // 保留未被选中的列
+    const newColumnDefs = columnDefs.filter(col => !colIdsToDelete.includes(col.field));
+    
+    // 更新行数据，移除被删除的列
+    const newRowData = rowData.map(row => {
+      const newRow = { ...row };
+      colIdsToDelete.forEach(colId => {
+        delete newRow[colId];
+      });
+      return newRow;
+    });
+    
+    // 更新状态
+    setColumnDefs(newColumnDefs);
+    setRowData(newRowData);
+    
+    // 刷新网格
+    setTimeout(() => {
+      gridRef.current?.api.refreshHeader();
+      gridRef.current?.api.refreshCells({ force: true });
+    }, 100);
+    
+    message.success(`已删除 ${colIdsToDelete.length} 列`);
+    setStatusText(`已删除 ${colIdsToDelete.length} 列`);
+  };
+
+  // 添加新列
+  const addNewColumn = () => {
+    if (!gridRef.current) return;
+    
+    // 保存当前状态到撤销栈
+    saveUndoState();
+    
+    // 获取当前列数 (减去行号列)
+    const currentColumnCount = columnDefs.length - 1;
+    
+    // 确定新列的字母标识
+    let newColLetter = '';
+    if (currentColumnCount < 26) {
+      // A-Z
+      newColLetter = String.fromCharCode(65 + currentColumnCount);
+    } else {
+      // 超过26列后使用AA, AB等格式
+      const firstChar = String.fromCharCode(65 + Math.floor((currentColumnCount - 26) / 26));
+      const secondChar = String.fromCharCode(65 + ((currentColumnCount - 26) % 26));
+      newColLetter = firstChar + secondChar;
+    }
+    
+    // 创建新列定义
+    const newColDef = createColumnDef(
+      newColLetter,
+      `col_${currentColumnCount}`
+    );
+    
+    // 更新列定义
+    const newColumnDefs = [...columnDefs, newColDef];
+    setColumnDefs(newColumnDefs);
+    
+    // 在所有行中添加新列的空值
+    const newRowData = rowData.map(row => {
+      return { ...row, [`col_${currentColumnCount}`]: '' };
+    });
+    setRowData(newRowData);
+    
+    // 刷新网格
+    setTimeout(() => {
+      gridRef.current?.api.refreshHeader();
+      gridRef.current?.api.refreshCells({ force: true });
+    }, 100);
+    
+    message.success('已添加新列');
+    setStatusText(`已添加列 ${newColLetter}`);
+  };
+
   // 渲染电子表格组件
   if (loading) {
     return (
@@ -825,8 +1048,14 @@ const SpreadsheetView: React.FC = () => {
           <Tooltip title="添加行">
             <Button icon={<PlusOutlined />} onClick={addNewRow} />
           </Tooltip>
+          <Tooltip title="添加列">
+            <Button icon={<AppstoreAddOutlined />} onClick={addNewColumn} />
+          </Tooltip>
           <Tooltip title="删除选中行">
             <Button icon={<DeleteOutlined />} onClick={deleteSelectedRows} />
+          </Tooltip>
+          <Tooltip title="删除选中列">
+            <Button icon={<ScissorOutlined />} onClick={deleteSelectedColumns} />
           </Tooltip>
           <Divider type="vertical" />
           <Tooltip title="导出Excel">
@@ -863,7 +1092,7 @@ const SpreadsheetView: React.FC = () => {
             defaultColDef={{
               editable: true,
               resizable: true,
-              sortable: true,
+              sortable: false,
               filter: true,
               flex: 1,
               minWidth: 80,
@@ -871,7 +1100,7 @@ const SpreadsheetView: React.FC = () => {
             }}
             rowSelection="multiple"
             enableRangeSelection={true}
-            suppressRowClickSelection={true}
+            suppressRowClickSelection={false} // 允许点击行选中
             pagination={false}
             rowHeight={21}
             headerHeight={24}
