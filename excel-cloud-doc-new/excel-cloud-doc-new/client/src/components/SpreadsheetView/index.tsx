@@ -87,9 +87,9 @@ const SpreadsheetView: React.FC = () => {
       valueGetter: (params: any) => {
         return params.node.rowIndex + 1;
       },
-      width: 50,
-      minWidth: 50,
-      maxWidth: 60,
+      width: 40,
+      minWidth: 40,
+      maxWidth: 40,
       pinned: 'left',
       lockPosition: true,
       lockVisible: true,
@@ -100,7 +100,13 @@ const SpreadsheetView: React.FC = () => {
       filter: false,
       editable: false,
       cellClass: 'row-number-cell',
-      headerClass: 'row-number-header'
+      headerClass: 'row-number-header',
+      cellStyle: {
+        padding: 0,
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center'
+      }
     };
   };
 
@@ -193,32 +199,6 @@ const SpreadsheetView: React.FC = () => {
 
   // 添加新行
   const addNewRow = () => {
-    if (rowData.length === 0) return;
-    
-    const newRowIndex = rowData.length;
-    const newRow: any = { id: newRowIndex };
-    
-    // 初始化新行所有单元格为空
-    columnDefs.forEach(col => {
-      newRow[col.field] = '';
-    });
-    
-    // 更新行数据
-    setRowData([...rowData, newRow]);
-    
-    // 定位到新行
-    setTimeout(() => {
-      const gridApi = gridRef.current?.api;
-      if (gridApi) {
-        gridApi.ensureIndexVisible(newRowIndex);
-      }
-    }, 100);
-    
-    message.success('已添加新行');
-  };
-
-  // 添加一行
-  const addRow = () => {
     if (gridRef.current) {
       const api = gridRef.current.api;
       const currentRowData = [...rowData];
@@ -236,12 +216,25 @@ const SpreadsheetView: React.FC = () => {
       console.log('当前表格数据行数:', currentRowData.length);
       
       // 添加到表格数据
-      setRowData([...currentRowData, newRow]);
+      const updatedRowData = [...currentRowData, newRow];
+      setRowData(updatedRowData);
       
-      // 滚动到新行位置
+      // 滚动到新行位置并立即开始编辑第一个单元格
       setTimeout(() => {
         api.ensureIndexVisible(currentRowData.length, 'bottom');
+        api.refreshCells({ force: true });
+        
+        // 可选：聚焦到新行的第一个可编辑单元格
+        if (columnDefs.length > 1) {
+          const firstEditableColId = columnDefs[1].field; // 第二列（跳过行号列）
+          api.startEditingCell({
+            rowIndex: currentRowData.length,
+            colKey: firstEditableColId
+          });
+        }
       }, 100);
+      
+      message.success('已添加新行');
     }
   };
 
@@ -432,8 +425,18 @@ const SpreadsheetView: React.FC = () => {
 
   return (
     <Layout style={{ height: '100vh' }}>
-      <Header style={{ display: 'flex', alignItems: 'center', padding: '0 16px' }}>
-        <div style={{ color: 'white', fontSize: '18px', marginRight: 'auto' }}>
+      <Header style={{ 
+        display: 'flex', 
+        alignItems: 'center', 
+        padding: '0 24px',
+        background: 'linear-gradient(to right, #1a365d, #2563eb)'
+      }}>
+        <div style={{ 
+          color: 'white', 
+          fontSize: '20px', 
+          fontWeight: 'bold',
+          marginRight: 'auto' 
+        }}>
           {sheet?.name || '未命名电子表格'}
         </div>
         <div>
@@ -441,21 +444,21 @@ const SpreadsheetView: React.FC = () => {
             type="primary" 
             icon={<SaveOutlined />} 
             onClick={saveSheet}
-            style={{ marginRight: 8 }}
+            style={{ marginRight: 10, background: '#10b981', borderColor: '#10b981' }}
           >
             保存
           </Button>
           <Button 
             icon={<DownloadOutlined />} 
             onClick={exportToExcel}
-            style={{ marginRight: 8 }}
+            style={{ marginRight: 10 }}
           >
             导出
           </Button>
           <Button 
             icon={<UploadOutlined />} 
             onClick={() => document.getElementById('file-upload')?.click()}
-            style={{ marginRight: 8 }}
+            style={{ marginRight: 10 }}
           >
             导入
           </Button>
@@ -463,6 +466,7 @@ const SpreadsheetView: React.FC = () => {
             type="primary"
             icon={<PlusOutlined />}
             onClick={addNewRow}
+            style={{ background: '#3b82f6', borderColor: '#3b82f6' }}
           >
             添加行
           </Button>
@@ -475,8 +479,15 @@ const SpreadsheetView: React.FC = () => {
           />
         </div>
       </Header>
-      <Content style={{ padding: 8, overflow: 'auto' }}>
-        <div className="ag-theme-alpine" style={{ height: 'calc(100vh - 80px)', width: '100%' }}>
+      <Content style={{ padding: 16, overflow: 'auto', background: '#f8fafc' }}>
+        <div 
+          className="ag-theme-alpine" 
+          style={{ 
+            height: 'calc(100vh - 96px)', 
+            width: '100%',
+            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+          }}
+        >
           <AgGridReact
             ref={gridRef}
             rowData={rowData}
@@ -485,25 +496,36 @@ const SpreadsheetView: React.FC = () => {
               editable: true,
               resizable: true,
               sortable: true,
-              filter: true
+              filter: true,
+              flex: 1,
+              minWidth: 100,
+              cellStyle: { padding: 0 }
             }}
             rowSelection="multiple"
             enableRangeSelection={true}
             suppressRowClickSelection={true}
             pagination={false}
-            rowHeight={28}
-            headerHeight={32}
+            rowHeight={22}
+            headerHeight={28}
             suppressMenuHide={true}
-            // 显示行号
-            rowStyle={{ borderLeft: '1px solid #dde2eb' }}
+            rowStyle={{ 
+              borderBottom: '1px solid #e5e7eb',
+              margin: 0,
+              padding: 0
+            }}
             getRowId={(params) => params.data.id.toString()}
             getRowClass={(params) => params.rowIndex % 2 === 0 ? 'even-row' : 'odd-row'}
+            enableCellChangeFlash={true}
             suppressDragLeaveHidesColumns={true}
-            // Excel风格设置
             ensureDomOrder={true}
             suppressColumnVirtualisation={true}
             enableCellTextSelection={true}
             animateRows={true}
+            rowBuffer={20}
+            onCellValueChanged={(params) => {
+              // 确保单元格值变化后刷新表格
+              console.log('单元格数据已修改:', params);
+            }}
           />
         </div>
       </Content>
