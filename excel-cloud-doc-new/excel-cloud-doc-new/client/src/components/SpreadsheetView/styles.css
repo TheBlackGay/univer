@@ -1,0 +1,62 @@
+/* Excel风格表格样式 */
+.ag-theme-alpine {
+  --ag-header-background-color: #f3f3f3;
+  --ag-header-foreground-color: #333;
+  --ag-header-border-color: #dde2eb;
+  --ag-cell-horizontal-border: solid 1px #dde2eb;
+  --ag-row-border-color: #dde2eb;
+  --ag-row-hover-color: #f0f7ff;
+  --ag-selected-row-background-color: #e4f0ff;
+  --ag-font-size: 13px;
+  --ag-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+}
+
+.ag-theme-alpine .ag-header {
+  border-bottom: 2px solid #dde2eb;
+  font-weight: bold;
+}
+
+.ag-theme-alpine .ag-cell {
+  border-right: 1px solid #dde2eb;
+  padding-left: 6px;
+  padding-right: 6px;
+}
+
+.ag-theme-alpine .ag-ltr .ag-cell {
+  border-right: 1px solid #dde2eb;
+}
+
+/* 行号列样式 */
+.ag-theme-alpine .ag-row-position-absolute {
+  position: relative;
+}
+
+/* 交替行颜色 */
+.ag-theme-alpine .even-row {
+  background-color: #fff;
+}
+
+.ag-theme-alpine .odd-row {
+  background-color: #f9f9f9;
+}
+
+/* 聚焦单元格样式 */
+.ag-theme-alpine .ag-cell-focus {
+  border: 2px solid #1890ff !important;
+  outline: none;
+}
+
+/* 列头样式 */
+.ag-theme-alpine .ag-header-cell {
+  background-color: #f1f1f1;
+  font-weight: bold;
+  text-align: center;
+}
+
+/* 添加行号样式 */
+.row-number-column {
+  background-color: #f3f3f3;
+  font-weight: bold;
+  text-align: center;
+  border-right: 2px solid #dde2eb !important;
+} 

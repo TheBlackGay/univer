@@ -1,12 +1,13 @@
 import { useEffect, useState, useRef } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { Layout, Button, Spin, message } from 'antd';
-import { SaveOutlined, DownloadOutlined, UploadOutlined } from '@ant-design/icons';
+import { SaveOutlined, DownloadOutlined, UploadOutlined, PlusOutlined } from '@ant-design/icons';
 import { AgGridReact } from 'ag-grid-react';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
 import axios from 'axios';
 import * as XLSX from 'xlsx';
+import './styles.css'; // 我们需要创建这个文件
 
 const { Header, Content } = Layout;
 const API_URL = 'http://localhost:3000/api';
@@ -25,112 +26,223 @@ interface Sheet {
 
 const SpreadsheetView: React.FC = () => {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [sheet, setSheet] = useState<Sheet | null>(null);
   const [rowData, setRowData] = useState<any[]>([]);
   const [columnDefs, setColumnDefs] = useState<any[]>([]);
   const gridRef = useRef<any>(null);
 
-  // 加载电子表格数据
-  useEffect(() => {
-    const fetchSheet = async () => {
-      try {
-        setLoading(true);
-        
-        // 确保ID是数字
-        const numericId = parseInt(id!, 10);
-        if (isNaN(numericId)) {
-          throw new Error(`无效的ID格式: ${id}`);
-        }
-        
-        const response = await axios.get(`${API_URL}/sheets/${numericId}`);
-        const sheetData = response.data;
-        setSheet(sheetData);
-
-        // 处理数据格式，转换为AG Grid可用的格式
-        processSheetData(sheetData.data);
-      } catch (error) {
-        console.error('加载电子表格失败:', error);
-        message.error('无法加载电子表格');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    if (id) {
-      fetchSheet();
-    }
-  }, [id]);
-
-  // 处理电子表格数据为AG Grid格式
-  const processSheetData = (cells: Cell[]) => {
-    if (!cells || cells.length === 0) {
-      // 创建一个空白表格
-      const emptyCols = Array.from({ length: 26 }, (_, i) => {
-        const colId = String.fromCharCode(65 + i); // A-Z
-        return {
-          headerName: colId,
-          field: `col_${i}`, // 使用一致的字段名称格式
-          editable: true,
-          width: 100,
-        };
-      });
-      
-      const emptyRows = Array.from({ length: 100 }, (_, i) => {
-        const row: any = { id: i };
-        emptyCols.forEach((col) => {
-          row[col.field] = '';
-        });
-        return row;
-      });
-      
-      setColumnDefs(emptyCols);
-      setRowData(emptyRows);
+  // 获取电子表格数据
+  const fetchSheet = async () => {
+    if (!id) {
+      console.log('没有提供ID，创建新的电子表格');
       return;
     }
 
-    // 确定表格的行数和列数
-    const maxRow = Math.max(...cells.map(cell => cell.row)) + 1;
-    const maxCol = Math.max(...cells.map(cell => cell.col)) + 1;
+    setLoading(true);
+    try {
+      // 确保ID是数字
+      const numericId = parseInt(id, 10);
+      if (isNaN(numericId)) {
+        throw new Error(`无效的ID格式: ${id}`);
+      }
+
+      const response = await axios.get(`${API_URL}/sheets/${numericId}`);
+      const sheetData = response.data;
+      console.log('从服务器获取的表格数据:', sheetData);
+      
+      // 更新状态
+      setSheet(sheetData);
+      
+      // 处理数据格式，转换为AG Grid可用的格式
+      const { rowData, columnDefs } = processSheetData(sheetData);
+      setRowData(rowData);
+      setColumnDefs(columnDefs);
+    } catch (error) {
+      console.error('加载电子表格失败:', error);
+      if (axios.isAxiosError(error) && error.response?.status === 404) {
+        message.error('找不到电子表格');
+        navigate('/sheets');
+      } else {
+        message.error('加载失败，请重试');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 加载电子表格数据
+  useEffect(() => {
+    if (id) {
+      fetchSheet();
+    }
+  }, [id, navigate]);
+
+  // 添加行号列
+  const addRowNumberColumn = () => {
+    return {
+      headerName: '#',
+      field: 'rowNum',
+      valueGetter: (params: any) => {
+        return params.node.rowIndex + 1;
+      },
+      width: 50,
+      minWidth: 50,
+      maxWidth: 60,
+      pinned: 'left',
+      lockPosition: true,
+      lockVisible: true,
+      suppressNavigable: true,
+      suppressMovable: true,
+      resizable: false,
+      sortable: false,
+      filter: false,
+      editable: false,
+      cellClass: 'row-number-cell',
+      headerClass: 'row-number-header'
+    };
+  };
+
+  // 处理表格数据
+  const processSheetData = (sheet: Sheet | null): { rowData: any[]; columnDefs: any[] } => {
+    const columnDefs: any[] = [addRowNumberColumn()];
+    const rowData: any[] = [];
+
+    console.log('正在处理表格数据:', sheet);
+
+    // 如果没有有效的表格数据，创建一个空表格
+    if (!sheet || !sheet.data || sheet.data.length === 0) {
+      // 创建默认的26列 (A-Z)
+      for (let col = 0; col < 26; col++) {
+        columnDefs.push({
+          headerName: String.fromCharCode(65 + col),
+          field: `col_${col}`,
+          editable: true,
+          resizable: true
+        });
+      }
+
+      // 创建默认的100行
+      for (let row = 0; row < 100; row++) {
+        const rowObj: Record<string, any> = { id: `row_${row}` };
+        for (let col = 0; col < 26; col++) {
+          rowObj[`col_${col}`] = '';
+        }
+        rowData.push(rowObj);
+      }
+
+      return { rowData, columnDefs };
+    }
+
+    // 如果有数据，计算最大行数和列数
+    let maxRow = -1;
+    let maxCol = -1;
     
-    // 确保至少有一行一列
-    const numRows = Math.max(maxRow, 1);
-    const numCols = Math.max(maxCol, 26); // 至少有26列 (A-Z)
+    console.log('原始单元格数据:', sheet.data);
+
+    sheet.data.forEach((cell) => {
+      maxRow = Math.max(maxRow, cell.row);
+      maxCol = Math.max(maxCol, cell.col);
+    });
+
+    console.log(`计算得到最大行数: ${maxRow}, 最大列数: ${maxCol}`);
+
+    // 确保至少有一些行列（如果数据为空）
+    maxCol = Math.max(maxCol, 25); // 至少26列 (0-25)
+    maxRow = Math.max(maxRow, 99); // 至少100行 (0-99)
 
     // 创建列定义
-    const colDefs = Array.from({ length: numCols }, (_, i) => {
-      const colId = String.fromCharCode(65 + i); // A-Z, 如果超过Z需要额外处理
-      return {
-        headerName: colId,
-        field: `col_${i}`,
+    for (let col = 0; col <= maxCol; col++) {
+      columnDefs.push({
+        headerName: String.fromCharCode(65 + col),
+        field: `col_${col}`,
         editable: true,
-        width: 100,
-      };
-    });
+        resizable: true
+      });
+    }
 
     // 创建行数据
-    const rows = Array.from({ length: numRows }, (_, rowIndex) => {
-      const rowData: any = { id: rowIndex };
-      // 初始化所有单元格为空
-      for (let colIndex = 0; colIndex < numCols; colIndex++) {
-        rowData[`col_${colIndex}`] = '';
+    for (let row = 0; row <= maxRow; row++) {
+      const rowObj: Record<string, any> = { id: `row_${row}` };
+      // 初始化所有单元格为空字符串
+      for (let col = 0; col <= maxCol; col++) {
+        rowObj[`col_${col}`] = '';
       }
-      return rowData;
-    });
+      rowData.push(rowObj);
+    }
 
     // 填充实际数据
-    cells.forEach(cell => {
-      const { row, col, value } = cell;
-      if (rows[row] && col < numCols) {
-        rows[row][`col_${col}`] = value;
+    sheet.data.forEach((cell) => {
+      // 确保行和列索引在有效范围内
+      if (cell.row >= 0 && cell.row <= maxRow && cell.col >= 0 && cell.col <= maxCol) {
+        if (rowData[cell.row]) {
+          rowData[cell.row][`col_${cell.col}`] = cell.value !== undefined ? cell.value : '';
+        } else {
+          console.warn(`无法找到行索引 ${cell.row} 的行数据`);
+        }
+      } else {
+        console.warn(`单元格索引超出范围: row=${cell.row}, col=${cell.col}`);
       }
     });
 
-    setColumnDefs(colDefs);
-    setRowData(rows);
+    console.log('处理后的行数据:', rowData);
+
+    return { rowData, columnDefs };
+  };
+
+  // 添加新行
+  const addNewRow = () => {
+    if (rowData.length === 0) return;
     
-    console.log('处理后的列定义:', colDefs);
-    console.log('处理后的行数据:', rows);
+    const newRowIndex = rowData.length;
+    const newRow: any = { id: newRowIndex };
+    
+    // 初始化新行所有单元格为空
+    columnDefs.forEach(col => {
+      newRow[col.field] = '';
+    });
+    
+    // 更新行数据
+    setRowData([...rowData, newRow]);
+    
+    // 定位到新行
+    setTimeout(() => {
+      const gridApi = gridRef.current?.api;
+      if (gridApi) {
+        gridApi.ensureIndexVisible(newRowIndex);
+      }
+    }, 100);
+    
+    message.success('已添加新行');
+  };
+
+  // 添加一行
+  const addRow = () => {
+    if (gridRef.current) {
+      const api = gridRef.current.api;
+      const currentRowData = [...rowData];
+      
+      // 创建新行对象
+      const newRow: Record<string, any> = { id: `row_${currentRowData.length}` };
+      const colCount = columnDefs.length - 1; // 减去行号列
+      
+      // 初始化所有列为空字符串
+      for (let i = 0; i < colCount; i++) {
+        newRow[`col_${i}`] = '';
+      }
+      
+      console.log('添加新行:', newRow);
+      console.log('当前表格数据行数:', currentRowData.length);
+      
+      // 添加到表格数据
+      setRowData([...currentRowData, newRow]);
+      
+      // 滚动到新行位置
+      setTimeout(() => {
+        api.ensureIndexVisible(currentRowData.length, 'bottom');
+      }, 100);
+    }
   };
 
   // 保存电子表格
@@ -147,26 +259,31 @@ const SpreadsheetView: React.FC = () => {
         }
       });
 
+      console.log('准备保存的表格数据:', allData);
+      console.log('表格行数:', allData.length);
+
       // 转换为后端需要的Cell格式
       const cells: Cell[] = [];
       allData.forEach((rowData, rowIndex) => {
-        // 跳过id字段
+        // 跳过id字段和行号字段
         Object.entries(rowData).forEach(([key, value]) => {
-          if (key !== 'id' && value !== undefined && value !== '') {
+          if (key !== 'id' && key !== 'rowNum' && value !== undefined && value !== '') {
             // 从字段名称中提取列索引，例如 'col_0' -> 0
-            const colIndex = parseInt(key.split('_')[1], 10);
-            if (!isNaN(colIndex)) {
-              cells.push({
-                row: rowIndex,
-                col: colIndex,
-                value: value as string | number
-              });
+            if (key.startsWith('col_')) {
+              const colIndex = parseInt(key.split('_')[1], 10);
+              if (!isNaN(colIndex)) {
+                cells.push({
+                  row: rowIndex,
+                  col: colIndex,
+                  value: value as string | number
+                });
+              }
             }
           }
         });
       });
 
-      console.log('准备发送到后端的数据:', { name: sheet?.name || '未命名电子表格', data: cells });
+      console.log('转换后的单元格数据:', cells);
 
       // 发送到后端
       const payload = {
@@ -338,8 +455,16 @@ const SpreadsheetView: React.FC = () => {
           <Button 
             icon={<UploadOutlined />} 
             onClick={() => document.getElementById('file-upload')?.click()}
+            style={{ marginRight: 8 }}
           >
             导入
+          </Button>
+          <Button 
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={addNewRow}
+          >
+            添加行
           </Button>
           <input
             id="file-upload"
@@ -365,6 +490,20 @@ const SpreadsheetView: React.FC = () => {
             rowSelection="multiple"
             enableRangeSelection={true}
             suppressRowClickSelection={true}
+            pagination={false}
+            rowHeight={28}
+            headerHeight={32}
+            suppressMenuHide={true}
+            // 显示行号
+            rowStyle={{ borderLeft: '1px solid #dde2eb' }}
+            getRowId={(params) => params.data.id.toString()}
+            getRowClass={(params) => params.rowIndex % 2 === 0 ? 'even-row' : 'odd-row'}
+            suppressDragLeaveHidesColumns={true}
+            // Excel风格设置
+            ensureDomOrder={true}
+            suppressColumnVirtualisation={true}
+            enableCellTextSelection={true}
+            animateRows={true}
           />
         </div>
       </Content>
