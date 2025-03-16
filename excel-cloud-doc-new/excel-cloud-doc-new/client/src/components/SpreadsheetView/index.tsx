@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Layout, Button, Spin, message, Tooltip, Dropdown, Menu, Input, Modal, Space, Divider } from 'antd';
+import { Layout, Button, Spin, message, Tooltip, Dropdown, Menu, Input, Modal, Space, Divider, Popover } from 'antd';
+import type { MenuProps } from 'antd';
 import { 
   SaveOutlined, 
   DownloadOutlined, 
@@ -29,7 +30,9 @@ import {
   FontColorsOutlined,
   BgColorsOutlined,
   FilterOutlined,
-  AppstoreAddOutlined
+  AppstoreAddOutlined,
+  EyeOutlined,
+  LockOutlined
 } from '@ant-design/icons';
 import { AgGridReact } from 'ag-grid-react';
 import 'ag-grid-community/styles/ag-grid.css';
@@ -107,6 +110,311 @@ const SpreadsheetView: React.FC = () => {
     }
   };
 
+  // 保存当前状态到撤销栈
+  const saveUndoState = () => {
+    setUndoStack([...undoStack, [...rowData]]);
+    // 清空重做栈
+    setRedoStack([]);
+  };
+
+  // 撤销操作
+  const undo = () => {
+    if (undoStack.length === 0) {
+      message.info('没有可撤销的操作');
+      return;
+    }
+    
+    // 保存当前状态到重做栈
+    setRedoStack([...redoStack, [...rowData]]);
+    
+    // 恢复上一个状态
+    const previousState = undoStack[undoStack.length - 1];
+    setRowData(previousState);
+    
+    // 从撤销栈中移除已恢复的状态
+    setUndoStack(undoStack.slice(0, -1));
+    
+    message.success('已撤销上一步操作');
+    setStatusText('已撤销');
+  };
+
+  // 重做操作
+  const redo = () => {
+    if (redoStack.length === 0) {
+      message.info('没有可重做的操作');
+      return;
+    }
+    
+    // 保存当前状态到撤销栈
+    setUndoStack([...undoStack, [...rowData]]);
+    
+    // 恢复下一个状态
+    const nextState = redoStack[redoStack.length - 1];
+    setRowData(nextState);
+    
+    // 从重做栈中移除已恢复的状态
+    setRedoStack(redoStack.slice(0, -1));
+    
+    message.success('已重做操作');
+    setStatusText('已重做');
+  };
+
+  // 复制选中单元格
+  const copySelectedCells = () => {
+    if (!gridRef.current) return;
+    
+    const api = gridRef.current.api;
+    const ranges = api.getCellRanges();
+    
+    if (!ranges || ranges.length === 0) {
+      message.info('请先选择要复制的单元格');
+      return;
+    }
+    
+    // 获取选中范围
+    const range = ranges[0];
+    const startRow = range.startRow.rowIndex;
+    const endRow = range.endRow.rowIndex;
+    const columns = range.columns;
+    
+    // 构建复制数据
+    let copyData = '';
+    for (let rowIndex = startRow; rowIndex <= endRow; rowIndex++) {
+      const rowNode = api.getDisplayedRowAtIndex(rowIndex);
+      if (!rowNode) continue;
+      
+      const rowValues = columns.map((col: any) => {
+        const value = rowNode.data[col.colId];
+        return value !== undefined && value !== null ? value : '';
+      });
+      
+      copyData += rowValues.join('\t') + '\n';
+    }
+    
+    // 复制到剪贴板
+    navigator.clipboard.writeText(copyData)
+      .then(() => {
+        message.success('已复制到剪贴板');
+        setStatusText('已复制');
+      })
+      .catch(err => {
+        console.error('复制失败:', err);
+        message.error('复制失败');
+      });
+  };
+
+  // 粘贴到选中单元格
+  const pasteToSelectedCell = async () => {
+    if (!gridRef.current) return;
+    
+    try {
+      // 保存当前状态到撤销栈
+      saveUndoState();
+      
+      const api = gridRef.current.api;
+      const focusedCell = api.getFocusedCell();
+      
+      if (!focusedCell) {
+        message.info('请先选择要粘贴的位置');
+        return;
+      }
+      
+      // 从剪贴板获取文本
+      const text = await navigator.clipboard.readText();
+      if (!text) {
+        message.info('剪贴板为空');
+        return;
+      }
+      
+      // 解析粘贴的数据（按制表符和换行符分割）
+      const rows = text.split('\n').filter(row => row.trim());
+      const startRowIndex = focusedCell.rowIndex;
+      const startColId = focusedCell.column.colId;
+      
+      // 如果不是以col_开头的列ID，则不处理
+      if (!startColId.startsWith('col_')) {
+        message.info('不能粘贴到此位置');
+        return;
+      }
+      
+      const startColIndex = parseInt(startColId.replace('col_', ''), 10);
+      
+      // 更新数据
+      const newRowData = [...rowData];
+      rows.forEach((rowStr, rowOffset) => {
+        const rowIndex = startRowIndex + rowOffset;
+        
+        // 如果行不存在，则添加新行
+        if (rowIndex >= newRowData.length) {
+          const newRow: Record<string, any> = { id: `row_${rowIndex}` };
+          for (let i = 0; i < columnDefs.length - 1; i++) {
+            newRow[`col_${i}`] = '';
+          }
+          newRowData.push(newRow);
+        }
+        
+        // 分割行数据并填充单元格
+        const cells = rowStr.split('\t');
+        cells.forEach((cellValue, colOffset) => {
+          const colIndex = startColIndex + colOffset;
+          const colId = `col_${colIndex}`;
+          
+          // 确保列存在
+          if (colIndex < columnDefs.length - 1) {
+            newRowData[rowIndex][colId] = cellValue;
+          }
+        });
+      });
+      
+      setRowData(newRowData);
+      api.refreshCells({ force: true });
+      
+      message.success('粘贴成功');
+      setStatusText('已粘贴');
+    } catch (error) {
+      console.error('粘贴失败:', error);
+      message.error('粘贴失败');
+    }
+  };
+
+  // 冻结窗格函数
+  const freezePane = (rowIndex: number = 0, colIndex: number = 0) => {
+    if (!gridRef.current || !gridRef.current.api) return;
+    
+    // 获取当前焦点单元格
+    const focusedCell = gridRef.current.api.getFocusedCell();
+    if (!focusedCell && (rowIndex === 0 || colIndex === 0)) {
+      message.info('请先选择要冻结的单元格');
+      return;
+    }
+    
+    // 使用传入的参数或聚焦的单元格
+    const r = rowIndex > 0 ? rowIndex : (focusedCell ? focusedCell.rowIndex : 0);
+    const c = colIndex > 0 ? colIndex : (focusedCell ? getColumnIndexById(focusedCell.column.colId) : 0);
+    
+    if (r <= 0 && c <= 0) {
+      message.info('请选择有效的冻结位置');
+      return;
+    }
+    
+    const columnApi = gridRef.current.columnApi;
+    const gridApi = gridRef.current.api;
+    
+    // 冻结行
+    if (r > 0) {
+      gridApi.setPinnedTopRowData(rowData.slice(0, r));
+      setStatusText(`已冻结 ${r} 行`);
+    } else {
+      gridApi.setPinnedTopRowData(null);
+    }
+    
+    // 冻结列
+    if (c > 0) {
+      // 获取列IDs
+      const allColumns = columnApi.getAllColumns();
+      const columnsToPin = allColumns.slice(0, c + 1); // +1是因为包括行号列
+      const columnIds = columnsToPin.map((col: any) => col.colId);
+      
+      columnApi.setColumnsToPin(columnIds, 'left');
+      setStatusText(`已冻结 ${r > 0 ? r + '行和' : ''} ${c} 列`);
+    } else {
+      columnApi.setColumnsToPin([], 'left');
+    }
+    
+    message.success(`已冻结${r > 0 ? r + '行' : ''}${r > 0 && c > 0 ? '和' : ''}${c > 0 ? c + '列' : ''}`);
+  };
+  
+  // 辅助函数：获取列索引
+  const getColumnIndexById = (colId: string): number => {
+    if (colId === 'rowNum') return 0;
+    
+    for (let i = 0; i < columnDefs.length; i++) {
+      if (columnDefs[i].field === colId) {
+        return i;
+      }
+    }
+    return 0;
+  };
+
+  // 添加格式化功能
+  const applyFormatting = (formatType: 'bold' | 'italic' | 'underline' | 'align' | 'color', value?: string) => {
+    if (!gridRef.current) return;
+    
+    const api = gridRef.current.api;
+    const ranges = api.getCellRanges();
+    
+    if (!ranges || ranges.length === 0) {
+      message.info('请先选择要格式化的单元格');
+      return;
+    }
+    
+    // 保存当前状态到撤销栈
+    saveUndoState();
+    
+    const range = ranges[0];
+    const startRow = range.startRow.rowIndex;
+    const endRow = range.endRow.rowIndex;
+    const columns = range.columns;
+    
+    // 获取当前选中的单元格
+    const cellsToUpdate: { rowIndex: number, colId: string }[] = [];
+    for (let rowIndex = startRow; rowIndex <= endRow; rowIndex++) {
+      columns.forEach((col: any) => {
+        if (col.colId !== 'rowNum') {
+          cellsToUpdate.push({ rowIndex, colId: col.colId });
+        }
+      });
+    }
+    
+    // 应用格式
+    if (cellsToUpdate.length > 0) {
+      const cellClassRules = {
+        'cell-bold': (params: any) => params.data.cellStyles?.[params.column.colId]?.bold === true,
+        'cell-italic': (params: any) => params.data.cellStyles?.[params.column.colId]?.italic === true,
+        'cell-underline': (params: any) => params.data.cellStyles?.[params.column.colId]?.underline === true,
+        'cell-align-left': (params: any) => params.data.cellStyles?.[params.column.colId]?.align === 'left',
+        'cell-align-center': (params: any) => params.data.cellStyles?.[params.column.colId]?.align === 'center',
+        'cell-align-right': (params: any) => params.data.cellStyles?.[params.column.colId]?.align === 'right',
+      };
+      
+      // 应用新的样式
+      const updatedRowData = [...rowData];
+      cellsToUpdate.forEach(({ rowIndex, colId }) => {
+        if (!updatedRowData[rowIndex].cellStyles) {
+          updatedRowData[rowIndex].cellStyles = {};
+        }
+        
+        if (!updatedRowData[rowIndex].cellStyles[colId]) {
+          updatedRowData[rowIndex].cellStyles[colId] = {};
+        }
+        
+        const currentStyle = updatedRowData[rowIndex].cellStyles[colId];
+        
+        switch (formatType) {
+          case 'bold':
+            updatedRowData[rowIndex].cellStyles[colId].bold = !currentStyle.bold;
+            break;
+          case 'italic':
+            updatedRowData[rowIndex].cellStyles[colId].italic = !currentStyle.italic;
+            break;
+          case 'underline':
+            updatedRowData[rowIndex].cellStyles[colId].underline = !currentStyle.underline;
+            break;
+          case 'align':
+            updatedRowData[rowIndex].cellStyles[colId].align = value;
+            break;
+          case 'color':
+            updatedRowData[rowIndex].cellStyles[colId].color = value;
+            break;
+        }
+      });
+      
+      setRowData(updatedRowData);
+      api.refreshCells({ force: true });
+      setStatusText(`已应用${formatType}格式`);
+    }
+  };
+
   // 加载电子表格数据
   useEffect(() => {
     if (id) {
@@ -114,7 +422,7 @@ const SpreadsheetView: React.FC = () => {
     }
   }, [id, navigate]);
 
-  // 添加全局键盘事件监听
+  // 增强键盘事件监听
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // 只处理表格获得焦点时的快捷键
@@ -125,8 +433,63 @@ const SpreadsheetView: React.FC = () => {
       // 同时支持Windows的Ctrl键和Mac的Command键
       const isModifierKey = e.ctrlKey || e.metaKey;
       
+      // F2 键开始编辑
+      if (e.key === 'F2') {
+        e.preventDefault();
+        const focusedCell = gridRef.current.api.getFocusedCell();
+        if (focusedCell && focusedCell.column.getColDef().editable) {
+          gridRef.current.api.startEditingCell({
+            rowIndex: focusedCell.rowIndex,
+            colKey: focusedCell.column.colId
+          });
+        }
+        return;
+      }
+      
+      // 方向键导航（带Shift键可以扩展选择区域）
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        if (e.shiftKey) {
+          // 扩展选择区域
+          const api = gridRef.current.api;
+          const focusedCell = api.getFocusedCell();
+          const ranges = api.getCellRanges();
+          
+          if (focusedCell && ranges.length > 0) {
+            let newRowIndex = focusedCell.rowIndex;
+            let newColIndex = api.getColumnDefs().findIndex((col: any) => col.field === focusedCell.column.getColId());
+            
+            // 计算新位置
+            if (e.key === 'ArrowUp') newRowIndex = Math.max(0, newRowIndex - 1);
+            else if (e.key === 'ArrowDown') newRowIndex = Math.min(rowData.length - 1, newRowIndex + 1);
+            else if (e.key === 'ArrowLeft') newColIndex = Math.max(0, newColIndex - 1);
+            else if (e.key === 'ArrowRight') newColIndex = Math.min(api.getColumnDefs().length - 1, newColIndex + 1);
+            
+            // 更新选择范围
+            const colId = (api.getColumnDefs()[newColIndex] as any).field;
+            api.setFocusedCell(newRowIndex, colId);
+            e.preventDefault();
+          }
+        }
+      }
+      
+      // 直接输入开始编辑
+      if (!isModifierKey && !e.altKey && e.key.length === 1 && /^[a-zA-Z0-9\s\-=+*\/.,;:'"`!@#$%^&*()_+[\]{}|\\<>?]$/.test(e.key)) {
+        const focusedCell = gridRef.current.api.getFocusedCell();
+        if (focusedCell && focusedCell.column.getColDef().editable) {
+          if (!gridRef.current.api.getEditingCells().length) {
+            gridRef.current.api.startEditingCell({
+              rowIndex: focusedCell.rowIndex,
+              colKey: focusedCell.column.colId,
+              keyPress: e.key
+            });
+            e.preventDefault();
+          }
+        }
+      }
+      
+      // 常规快捷键
       if (isModifierKey) {
-        switch (e.key) {
+        switch (e.key.toLowerCase()) {
           case 'z':
             e.preventDefault();
             undo();
@@ -143,6 +506,51 @@ const SpreadsheetView: React.FC = () => {
             // 粘贴由浏览器原生处理，但我们也调用自己的方法
             setTimeout(() => pasteToSelectedCell(), 0);
             break;
+          case 'b':
+            e.preventDefault();
+            // 加粗单元格文本
+            applyFormatting('bold');
+            break;
+          case 'i':
+            e.preventDefault();
+            // 设置斜体
+            applyFormatting('italic');
+            break;
+          case 'u':
+            e.preventDefault();
+            // 添加下划线
+            applyFormatting('underline');
+            break;
+        }
+      }
+      
+      // Delete键删除单元格内容
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        const api = gridRef.current.api;
+        const ranges = api.getCellRanges();
+        
+        if (ranges && ranges.length > 0) {
+          // 保存撤销状态
+          saveUndoState();
+          
+          const range = ranges[0];
+          const startRow = range.startRow.rowIndex;
+          const endRow = range.endRow.rowIndex;
+          const columns = range.columns;
+          
+          // 清空选中区域的单元格
+          const newRowData = [...rowData];
+          for (let rowIndex = startRow; rowIndex <= endRow; rowIndex++) {
+            columns.forEach((col: any) => {
+              if (newRowData[rowIndex] && col.colId !== 'rowNum') {
+                newRowData[rowIndex][col.colId] = '';
+              }
+            });
+          }
+          
+          setRowData(newRowData);
+          api.refreshCells();
+          e.preventDefault();
         }
       }
     };
@@ -152,7 +560,336 @@ const SpreadsheetView: React.FC = () => {
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [rowData, columnDefs]); // 依赖项包含可能在快捷键处理中使用的状态
+  }, [rowData, columnDefs, undo, redo, copySelectedCells, pasteToSelectedCell, applyFormatting, saveUndoState]);
+
+  // 添加右键菜单
+  const [contextMenuPosition, setContextMenuPosition] = useState<{ x: number, y: number } | null>(null);
+  const [selectedCell, setSelectedCell] = useState<{ rowIndex: number, colId: string } | null>(null);
+
+  const handleContextMenu = (e: React.MouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    
+    const gridElement = document.querySelector('.ag-theme-alpine');
+    if (!gridElement || !gridRef.current) return;
+    
+    const rect = gridElement.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    const cell = (e.target as HTMLElement).closest('.ag-cell');
+    if (cell) {
+      const rowIndex = parseInt(cell.getAttribute('row-index') || '0', 10);
+      const colId = cell.getAttribute('col-id') || '';
+      
+      setSelectedCell({ rowIndex, colId });
+      setContextMenuPosition({ x, y });
+    }
+  };
+
+  const handleMenuClick = (key: string) => {
+    setContextMenuPosition(null);
+    
+    if (!selectedCell) return;
+    
+    switch (key) {
+      case 'copy':
+        copySelectedCells();
+        break;
+      case 'paste':
+        pasteToSelectedCell();
+        break;
+      case 'cut':
+        copySelectedCells();
+        // 然后清空单元格
+        if (gridRef.current) {
+          const api = gridRef.current.api;
+          const ranges = api.getCellRanges();
+          
+          if (ranges && ranges.length > 0) {
+            saveUndoState();
+            
+            const range = ranges[0];
+            const startRow = range.startRow.rowIndex;
+            const endRow = range.endRow.rowIndex;
+            const columns = range.columns;
+            
+            const newRowData = [...rowData];
+            for (let rowIndex = startRow; rowIndex <= endRow; rowIndex++) {
+              columns.forEach(col => {
+                if (newRowData[rowIndex] && col.colId !== 'rowNum') {
+                  newRowData[rowIndex][col.colId] = '';
+                }
+              });
+            }
+            
+            setRowData(newRowData);
+            api.refreshCells();
+            setStatusText('已剪切');
+          }
+        }
+        break;
+      case 'insert_row':
+        // 在选中行上方插入一行
+        if (gridRef.current) {
+          saveUndoState();
+          
+          const api = gridRef.current.api;
+          const newRowIndex = selectedCell.rowIndex;
+          
+          // 创建新行
+          const newRow: Record<string, any> = { id: `row_${newRowIndex}` };
+          const colCount = columnDefs.length - 1; // 减去行号列
+          
+          // 初始化所有列为空字符串
+          for (let i = 0; i < colCount; i++) {
+            newRow[`col_${i}`] = '';
+          }
+          
+          // 插入到指定位置
+          const newRowData = [
+            ...rowData.slice(0, newRowIndex),
+            newRow,
+            ...rowData.slice(newRowIndex)
+          ];
+          
+          // 更新行ID
+          const updatedRowData = newRowData.map((row, index) => ({
+            ...row,
+            id: `row_${index}`
+          }));
+          
+          setRowData(updatedRowData);
+          
+          setTimeout(() => {
+            api.refreshCells({ force: true });
+            api.ensureIndexVisible(newRowIndex, 'middle');
+          }, 100);
+          
+          message.success(`已在第 ${newRowIndex + 1} 行插入新行`);
+          setStatusText(`已在第 ${newRowIndex + 1} 行插入新行`);
+        }
+        break;
+      case 'insert_column':
+        // 在选中列右侧插入一列
+        if (gridRef.current && selectedCell.colId.startsWith('col_')) {
+          saveUndoState();
+          
+          const api = gridRef.current.api;
+          
+          // 获取当前列索引
+          const currentColIndex = parseInt(selectedCell.colId.replace('col_', ''), 10);
+          
+          // 所有后续列的索引+1
+          const newColumnDefs = [...columnDefs];
+          const colsToAdd = [];
+          
+          // 创建新列
+          const newColIndex = currentColIndex + 1;
+          let newColLetter = '';
+          if (newColIndex < 26) {
+            newColLetter = String.fromCharCode(65 + newColIndex);
+          } else {
+            const firstChar = String.fromCharCode(65 + Math.floor((newColIndex - 26) / 26));
+            const secondChar = String.fromCharCode(65 + ((newColIndex - 26) % 26));
+            newColLetter = firstChar + secondChar;
+          }
+          
+          const newColDef = createColumnDef(
+            newColLetter,
+            `col_${newColIndex}`
+          );
+          
+          // 找到插入位置
+          let insertIndex = -1;
+          for (let i = 0; i < newColumnDefs.length; i++) {
+            if (newColumnDefs[i].field === selectedCell.colId) {
+              insertIndex = i + 1;
+              break;
+            }
+          }
+          
+          if (insertIndex !== -1) {
+            newColumnDefs.splice(insertIndex, 0, newColDef);
+            setColumnDefs(newColumnDefs);
+            
+            // 更新行数据
+            const updatedRowData = rowData.map(row => {
+              const newRow = { ...row };
+              // 给新列添加空值
+              newRow[`col_${newColIndex}`] = '';
+              return newRow;
+            });
+            
+            setRowData(updatedRowData);
+            
+            setTimeout(() => {
+              api.refreshHeader();
+              api.refreshCells({ force: true });
+            }, 100);
+            
+            message.success(`已插入列 ${newColLetter}`);
+            setStatusText(`已插入列 ${newColLetter}`);
+          }
+        }
+        break;
+      case 'delete_row':
+        // 删除选中行
+        if (gridRef.current) {
+          saveUndoState();
+          
+          const rowIndex = selectedCell.rowIndex;
+          
+          // 过滤掉选中的行
+          const newRowData = rowData.filter((_, index) => index !== rowIndex);
+          
+          // 更新行ID
+          const updatedRowData = newRowData.map((row, index) => ({
+            ...row,
+            id: `row_${index}`
+          }));
+          
+          setRowData(updatedRowData);
+          
+          setTimeout(() => {
+            gridRef.current?.api.refreshCells({ force: true });
+          }, 100);
+          
+          message.success(`已删除第 ${rowIndex + 1} 行`);
+          setStatusText(`已删除第 ${rowIndex + 1} 行`);
+        }
+        break;
+      case 'delete_column':
+        // 删除选中列
+        if (gridRef.current && selectedCell.colId.startsWith('col_')) {
+          saveUndoState();
+          
+          // 过滤掉选中的列
+          const newColumnDefs = columnDefs.filter(col => col.field !== selectedCell.colId);
+          
+          // 更新行数据，移除被删除的列
+          const newRowData = rowData.map(row => {
+            const newRow = { ...row };
+            delete newRow[selectedCell.colId];
+            return newRow;
+          });
+          
+          // 更新状态
+          setColumnDefs(newColumnDefs);
+          setRowData(newRowData);
+          
+          // 刷新网格
+          setTimeout(() => {
+            gridRef.current?.api.refreshHeader();
+            gridRef.current?.api.refreshCells({ force: true });
+          }, 100);
+          
+          message.success(`已删除列`);
+          setStatusText(`已删除列`);
+        }
+        break;
+      case 'format_bold':
+        applyFormatting('bold');
+        break;
+      case 'format_italic':
+        applyFormatting('italic');
+        break;
+      case 'format_underline':
+        applyFormatting('underline');
+        break;
+      case 'align_left':
+        applyFormatting('align', 'left');
+        break;
+      case 'align_center':
+        applyFormatting('align', 'center');
+        break;
+      case 'align_right':
+        applyFormatting('align', 'right');
+        break;
+    }
+  };
+
+  const contextMenuItems: MenuProps['items'] = [
+    {
+      key: 'copy',
+      label: '复制',
+      icon: <CopyOutlined />
+    },
+    {
+      key: 'paste',
+      label: '粘贴',
+      icon: <SnippetsOutlined />
+    },
+    {
+      key: 'cut',
+      label: '剪切',
+      icon: <ScissorOutlined />
+    },
+    {
+      type: 'divider'
+    },
+    {
+      key: 'insert_row',
+      label: '插入行',
+      icon: <PlusOutlined />
+    },
+    {
+      key: 'insert_column',
+      label: '插入列',
+      icon: <AppstoreAddOutlined />
+    },
+    {
+      key: 'delete_row',
+      label: '删除行',
+      icon: <DeleteOutlined />
+    },
+    {
+      key: 'delete_column',
+      label: '删除列',
+      icon: <DeleteOutlined />
+    },
+    {
+      type: 'divider'
+    },
+    {
+      key: 'format_submenu',
+      label: '格式',
+      children: [
+        {
+          key: 'format_bold',
+          label: '加粗',
+          icon: <BoldOutlined />
+        },
+        {
+          key: 'format_italic',
+          label: '斜体',
+          icon: <ItalicOutlined />
+        },
+        {
+          key: 'format_underline',
+          label: '下划线',
+          icon: <UnderlineOutlined />
+        },
+        {
+          type: 'divider'
+        },
+        {
+          key: 'align_left',
+          label: '左对齐',
+          icon: <AlignLeftOutlined />
+        },
+        {
+          key: 'align_center',
+          label: '居中对齐',
+          icon: <AlignCenterOutlined />
+        },
+        {
+          key: 'align_right',
+          label: '右对齐',
+          icon: <AlignRightOutlined />
+        },
+      ]
+    }
+  ];
 
   // 添加行号列
   const addRowNumberColumn = () => {
@@ -200,7 +937,7 @@ const SpreadsheetView: React.FC = () => {
     if (!gridRef.current) return;
     
     const api = gridRef.current.api;
-    const column = api.getColumnDef(colId);
+    const column = api.getColumn(colId);
     
     if (!column) return;
     
@@ -225,7 +962,7 @@ const SpreadsheetView: React.FC = () => {
     });
     
     // 更新状态栏
-    setStatusText(`已选中 ${column.headerName} 列`);
+    setStatusText(`已选中 ${column.getColDef().headerName} 列`);
   };
 
   // 重新定义列定义，添加表头点击事件
@@ -236,28 +973,88 @@ const SpreadsheetView: React.FC = () => {
       editable: true,
       resizable: true,
       sortable: false,
-      headerClass: 'excel-centered-header',
-      // 添加点击表头选中整列的功能
-      headerComponentParams: {
-        // AG Grid 提供的表头组件参数
-        template: 
-          `<div class="ag-cell-label-container" role="presentation">
-            <span ref="eMenu" class="ag-header-icon ag-header-cell-menu-button" aria-hidden="true"></span>
-            <div ref="eLabel" class="ag-header-cell-label" role="presentation">
-              <span ref="eText" class="ag-header-cell-text" role="columnheader"></span>
-              <span ref="eSortOrder" class="ag-header-icon ag-sort-order" aria-hidden="true"></span>
-              <span ref="eSortAsc" class="ag-header-icon ag-sort-ascending-icon" aria-hidden="true"></span>
-              <span ref="eSortDesc" class="ag-header-icon ag-sort-descending-icon" aria-hidden="true"></span>
-              <span ref="eSortNone" class="ag-header-icon ag-sort-none-icon" aria-hidden="true"></span>
-              <span ref="eFilter" class="ag-header-icon ag-filter-icon" aria-hidden="true"></span>
-            </div>
-          </div>`,
-        // 自定义点击事件
-        onClick: () => selectEntireColumn(field)
-      },
+      headerClass: 'excel-centered-header excel-header-clickable',
+      suppressMenu: true,
       ...options
     };
   };
+
+  // 手动处理表头点击，因为useEffect中的事件监听不太可靠
+  const handleManualHeaderClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    // 先确定是否是点击了表头
+    const target = e.target as HTMLElement;
+    if (!target || !gridRef.current) return;
+    
+    // 查找最近的表头单元格元素
+    const headerCell = target.closest('.ag-header-cell');
+    if (!headerCell) return;
+    
+    // 获取列ID
+    const colId = headerCell.getAttribute('col-id');
+    if (!colId || colId === 'rowNum') return; // 忽略行号列
+    
+    console.log('表头点击 - 选中列:', colId);
+    
+    // 阻止事件进一步传播，避免触发其他事件
+    e.stopPropagation();
+    e.preventDefault();
+    
+    // 选中整列
+    selectEntireColumn(colId);
+  };
+
+  // 添加useEffect来确保表头可点击
+  useEffect(() => {
+    // 给所有表头添加特殊的点击事件
+    const attachHeaderClickEvents = () => {
+      if (!gridRef.current) return;
+      
+      // 获取所有表头单元格
+      const headerCells = document.querySelectorAll('.ag-header-cell:not([col-id="rowNum"])');
+      
+      headerCells.forEach(cell => {
+        // 移除之前可能存在的点击事件
+        cell.removeEventListener('click', headerClickHandler);
+        
+        // 添加新的点击事件
+        cell.addEventListener('click', headerClickHandler);
+        
+        // 添加鼠标悬停样式以表明可点击
+        cell.classList.add('excel-header-clickable');
+      });
+    };
+    
+    // 表头单元格点击处理函数
+    const headerClickHandler = (e: Event) => {
+      e.stopPropagation();
+      e.preventDefault();
+      
+      const cell = e.currentTarget as HTMLElement;
+      const colId = cell.getAttribute('col-id');
+      
+      if (colId && colId !== 'rowNum' && gridRef.current) {
+        console.log('表头单元格点击 - 选中列:', colId);
+        selectEntireColumn(colId);
+      }
+    };
+    
+    // 延迟添加事件，确保表格已渲染
+    const timer = setTimeout(attachHeaderClickEvents, 500);
+    
+    // 在表格内容变化时重新附加事件
+    gridRef.current?.api?.addEventListener('modelUpdated', attachHeaderClickEvents);
+    
+    return () => {
+      clearTimeout(timer);
+      gridRef.current?.api?.removeEventListener('modelUpdated', attachHeaderClickEvents);
+      
+      // 移除所有事件
+      const headerCells = document.querySelectorAll('.ag-header-cell:not([col-id="rowNum"])');
+      headerCells.forEach(cell => {
+        cell.removeEventListener('click', headerClickHandler);
+      });
+    };
+  }, [rowData.length, columnDefs.length]); // 依赖行数和列数变化
 
   // 处理表格数据
   const processSheetData = (sheet: Sheet | null): { rowData: any[]; columnDefs: any[] } => {
@@ -416,6 +1213,45 @@ const SpreadsheetView: React.FC = () => {
     const selectedNodes = api.getSelectedNodes();
     
     if (selectedNodes.length === 0) {
+      // 检查是否有单元格范围选择
+      const ranges = api.getCellRanges();
+      if (ranges && ranges.length > 0) {
+        // 获取范围内的行
+        const startRow = ranges[0].startRow.rowIndex;
+        const endRow = ranges[0].endRow.rowIndex;
+        
+        // 如果选择的是整行（行首至行尾）
+        const columns = ranges[0].columns;
+        if (columns.length === columnDefs.length - 1) { // 排除行号列
+          // 获取要删除的行索引
+          const indicesToDelete: number[] = [];
+          for (let i = startRow; i <= endRow; i++) {
+            indicesToDelete.push(i);
+          }
+          
+          // 过滤掉选中的行
+          const newRowData = rowData.filter((_, index) => !indicesToDelete.includes(index));
+          
+          // 更新行ID - 重新编号所有行
+          const updatedRowData = newRowData.map((row, index) => ({
+            ...row,
+            id: `row_${index}`
+          }));
+          
+          // 设置新的行数据
+          setRowData(updatedRowData);
+          
+          // 刷新表格
+          setTimeout(() => {
+            api.refreshCells({ force: true });
+          }, 100);
+          
+          message.success(`已删除 ${indicesToDelete.length} 行`);
+          setStatusText(`已删除 ${indicesToDelete.length} 行`);
+          return;
+        }
+      }
+      
       message.info('请先选择要删除的行');
       return;
     }
@@ -426,64 +1262,22 @@ const SpreadsheetView: React.FC = () => {
     // 过滤掉选中的行
     const newRowData = rowData.filter((_, index) => !selectedIndices.includes(index));
     
-    // 更新行ID
+    // 更新行ID - 重新编号所有行
     const updatedRowData = newRowData.map((row, index) => ({
       ...row,
       id: `row_${index}`
     }));
     
+    // 设置新的行数据
     setRowData(updatedRowData);
+    
+    // 刷新表格
+    setTimeout(() => {
+      api.refreshCells({ force: true });
+    }, 100);
+    
     message.success(`已删除 ${selectedNodes.length} 行`);
     setStatusText(`已删除 ${selectedNodes.length} 行`);
-  };
-
-  // 保存当前状态到撤销栈
-  const saveUndoState = () => {
-    setUndoStack([...undoStack, [...rowData]]);
-    // 清空重做栈
-    setRedoStack([]);
-  };
-
-  // 撤销操作
-  const undo = () => {
-    if (undoStack.length === 0) {
-      message.info('没有可撤销的操作');
-      return;
-    }
-    
-    // 保存当前状态到重做栈
-    setRedoStack([...redoStack, [...rowData]]);
-    
-    // 恢复上一个状态
-    const previousState = undoStack[undoStack.length - 1];
-    setRowData(previousState);
-    
-    // 从撤销栈中移除已恢复的状态
-    setUndoStack(undoStack.slice(0, -1));
-    
-    message.success('已撤销上一步操作');
-    setStatusText('已撤销');
-  };
-
-  // 重做操作
-  const redo = () => {
-    if (redoStack.length === 0) {
-      message.info('没有可重做的操作');
-      return;
-    }
-    
-    // 保存当前状态到撤销栈
-    setUndoStack([...undoStack, [...rowData]]);
-    
-    // 恢复下一个状态
-    const nextState = redoStack[redoStack.length - 1];
-    setRowData(nextState);
-    
-    // 从重做栈中移除已恢复的状态
-    setRedoStack(redoStack.slice(0, -1));
-    
-    message.success('已重做操作');
-    setStatusText('已重做');
   };
 
   // 搜索单元格
@@ -523,124 +1317,6 @@ const SpreadsheetView: React.FC = () => {
     } else {
       message.info('未找到匹配项');
       setStatusText('未找到匹配项');
-    }
-  };
-
-  // 复制选中单元格
-  const copySelectedCells = () => {
-    if (!gridRef.current) return;
-    
-    const api = gridRef.current.api;
-    const ranges = api.getCellRanges();
-    
-    if (!ranges || ranges.length === 0) {
-      message.info('请先选择要复制的单元格');
-      return;
-    }
-    
-    // 获取选中范围
-    const range = ranges[0];
-    const startRow = range.startRow.rowIndex;
-    const endRow = range.endRow.rowIndex;
-    const columns = range.columns;
-    
-    // 构建复制数据
-    let copyData = '';
-    for (let rowIndex = startRow; rowIndex <= endRow; rowIndex++) {
-      const rowNode = api.getDisplayedRowAtIndex(rowIndex);
-      if (!rowNode) continue;
-      
-      const rowValues = columns.map((col: any) => {
-        const value = rowNode.data[col.colId];
-        return value !== undefined && value !== null ? value : '';
-      });
-      
-      copyData += rowValues.join('\t') + '\n';
-    }
-    
-    // 复制到剪贴板
-    navigator.clipboard.writeText(copyData)
-      .then(() => {
-        message.success('已复制到剪贴板');
-        setStatusText('已复制');
-      })
-      .catch(err => {
-        console.error('复制失败:', err);
-        message.error('复制失败');
-      });
-  };
-
-  // 粘贴到选中单元格
-  const pasteToSelectedCell = async () => {
-    if (!gridRef.current) return;
-    
-    try {
-      // 保存当前状态到撤销栈
-      saveUndoState();
-      
-      const api = gridRef.current.api;
-      const focusedCell = api.getFocusedCell();
-      
-      if (!focusedCell) {
-        message.info('请先选择要粘贴的位置');
-        return;
-      }
-      
-      // 从剪贴板获取文本
-      const text = await navigator.clipboard.readText();
-      if (!text) {
-        message.info('剪贴板为空');
-        return;
-      }
-      
-      // 解析粘贴的数据（按制表符和换行符分割）
-      const rows = text.split('\n').filter(row => row.trim());
-      const startRowIndex = focusedCell.rowIndex;
-      const startColId = focusedCell.column.colId;
-      
-      // 如果不是以col_开头的列ID，则不处理
-      if (!startColId.startsWith('col_')) {
-        message.info('不能粘贴到此位置');
-        return;
-      }
-      
-      const startColIndex = parseInt(startColId.replace('col_', ''), 10);
-      
-      // 更新数据
-      const newRowData = [...rowData];
-      rows.forEach((rowStr, rowOffset) => {
-        const rowIndex = startRowIndex + rowOffset;
-        
-        // 如果行不存在，则添加新行
-        if (rowIndex >= newRowData.length) {
-          const newRow: Record<string, any> = { id: `row_${rowIndex}` };
-          for (let i = 0; i < columnDefs.length - 1; i++) {
-            newRow[`col_${i}`] = '';
-          }
-          newRowData.push(newRow);
-        }
-        
-        // 分割行数据并填充单元格
-        const cells = rowStr.split('\t');
-        cells.forEach((cellValue, colOffset) => {
-          const colIndex = startColIndex + colOffset;
-          const colId = `col_${colIndex}`;
-          
-          // 确保列存在
-          if (colIndex < columnDefs.length - 1) {
-            newRowData[rowIndex][colId] = cellValue;
-          }
-        });
-      });
-      
-      setRowData(newRowData);
-      api.refreshCells({ force: true });
-      
-      message.success('粘贴成功');
-      setStatusText('已粘贴');
-    } catch (error) {
-      console.error('粘贴失败:', error);
-      message.error('粘贴失败');
     }
   };
 
@@ -800,17 +1476,25 @@ const SpreadsheetView: React.FC = () => {
           });
           maxCols = Math.max(maxCols, 26); // 最少26列
           
-          // 创建列定义
-          const columns = Array.from({ length: maxCols }, (_, i) => ({
-            headerName: String.fromCharCode(65 + i), // A-Z
-            field: `col_${i}`,
-            editable: true,
-            width: 100
-          }));
+          // 创建列定义 - 使用我们的createColumnDef函数
+          const columnDefs = [addRowNumberColumn()];
+          for (let i = 0; i < maxCols; i++) {
+            // 使用createColumnDef创建列定义
+            let colHeader = '';
+            if (i < 26) {
+              colHeader = String.fromCharCode(65 + i);
+            } else {
+              const firstChar = String.fromCharCode(65 + Math.floor((i - 26) / 26));
+              const secondChar = String.fromCharCode(65 + ((i - 26) % 26));
+              colHeader = firstChar + secondChar;
+            }
+            
+            columnDefs.push(createColumnDef(colHeader, `col_${i}`));
+          }
 
           // 创建行数据
           const rows = jsonArray.map((row: unknown[], rowIndex: number) => {
-            const rowData: any = { id: rowIndex };
+            const rowData: any = { id: `row_${rowIndex}` };
             
             // 初始化所有单元格为空
             for (let colIndex = 0; colIndex < maxCols; colIndex++) {
@@ -829,7 +1513,7 @@ const SpreadsheetView: React.FC = () => {
             return rowData;
           });
 
-          setColumnDefs(columns);
+          setColumnDefs(columnDefs);
           setRowData(rows);
           
           message.success('导入成功');
@@ -1022,7 +1706,7 @@ const SpreadsheetView: React.FC = () => {
       
       {/* 工具栏 */}
       <div className="excel-toolbar">
-        <Space>
+        <Space wrap>
           <Tooltip title="撤销 (Ctrl+Z)">
             <Button 
               icon={<UndoOutlined />} 
@@ -1058,6 +1742,30 @@ const SpreadsheetView: React.FC = () => {
             <Button icon={<ScissorOutlined />} onClick={deleteSelectedColumns} />
           </Tooltip>
           <Divider type="vertical" />
+          <Tooltip title="加粗 (Ctrl+B)">
+            <Button icon={<BoldOutlined />} onClick={() => applyFormatting('bold')} />
+          </Tooltip>
+          <Tooltip title="斜体 (Ctrl+I)">
+            <Button icon={<ItalicOutlined />} onClick={() => applyFormatting('italic')} />
+          </Tooltip>
+          <Tooltip title="下划线 (Ctrl+U)">
+            <Button icon={<UnderlineOutlined />} onClick={() => applyFormatting('underline')} />
+          </Tooltip>
+          <Divider type="vertical" />
+          <Tooltip title="左对齐">
+            <Button icon={<AlignLeftOutlined />} onClick={() => applyFormatting('align', 'left')} />
+          </Tooltip>
+          <Tooltip title="居中对齐">
+            <Button icon={<AlignCenterOutlined />} onClick={() => applyFormatting('align', 'center')} />
+          </Tooltip>
+          <Tooltip title="右对齐">
+            <Button icon={<AlignRightOutlined />} onClick={() => applyFormatting('align', 'right')} />
+          </Tooltip>
+          <Divider type="vertical" />
+          <Tooltip title="冻结窗格">
+            <Button icon={<LockOutlined />} onClick={() => freezePane()} />
+          </Tooltip>
+          <Divider type="vertical" />
           <Tooltip title="导出Excel">
             <Button icon={<DownloadOutlined />} onClick={exportToExcel} />
           </Tooltip>
@@ -1084,6 +1792,7 @@ const SpreadsheetView: React.FC = () => {
             height: 'calc(100vh - 96px)', 
             width: '100%'
           }}
+          onContextMenu={handleContextMenu}
         >
           <AgGridReact
             ref={gridRef}
@@ -1096,11 +1805,19 @@ const SpreadsheetView: React.FC = () => {
               filter: true,
               flex: 1,
               minWidth: 80,
-              cellStyle: { padding: 0 }
+              cellStyle: { padding: 0 },
+              cellClassRules: {
+                'cell-bold': (params: any) => params.data.cellStyles?.[params.column.colId]?.bold === true,
+                'cell-italic': (params: any) => params.data.cellStyles?.[params.column.colId]?.italic === true,
+                'cell-underline': (params: any) => params.data.cellStyles?.[params.column.colId]?.underline === true,
+                'cell-align-left': (params: any) => params.data.cellStyles?.[params.column.colId]?.align === 'left',
+                'cell-align-center': (params: any) => params.data.cellStyles?.[params.column.colId]?.align === 'center',
+                'cell-align-right': (params: any) => params.data.cellStyles?.[params.column.colId]?.align === 'right',
+              }
             }}
             rowSelection="multiple"
             enableRangeSelection={true}
-            suppressRowClickSelection={false} // 允许点击行选中
+            suppressRowClickSelection={true}
             pagination={false}
             rowHeight={21}
             headerHeight={24}
@@ -1118,7 +1835,7 @@ const SpreadsheetView: React.FC = () => {
             suppressColumnVirtualisation={true}
             enableCellTextSelection={true}
             animateRows={true}
-            rowBuffer={20}
+            rowBuffer={50}
             onCellValueChanged={handleCellValueChanged}
             onRangeSelectionChanged={handleRangeSelectionChanged}
             onCellClicked={(params: any) => {
@@ -1136,6 +1853,24 @@ const SpreadsheetView: React.FC = () => {
               }
             }}
           />
+          {contextMenuPosition && (
+            <div 
+              style={{
+                position: 'absolute',
+                top: contextMenuPosition.y,
+                left: contextMenuPosition.x,
+                backgroundColor: 'white',
+                boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
+                zIndex: 1000
+              }}
+            >
+              <Menu
+                items={contextMenuItems}
+                onClick={({ key }) => handleMenuClick(key)}
+                style={{ minWidth: 160 }}
+              />
+            </div>
+          )}
         </div>
       </Content>
       
